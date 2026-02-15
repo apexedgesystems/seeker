@@ -1,0 +1,36 @@
+# ==============================================================================
+# seekerConfig.cmake - find_package(seeker) support
+#
+# Provides imported targets:
+#   seeker::cpu          - CPU diagnostics
+#   seeker::memory       - Memory diagnostics
+#   seeker::storage      - Storage diagnostics
+#   seeker::network      - Network diagnostics
+#   seeker::timing       - Timing diagnostics
+#   seeker::device       - Device diagnostics
+#   seeker::system       - System diagnostics
+#   seeker::gpu          - GPU diagnostics
+#   seeker::gpu_cuda     - GPU CUDA sidecar (when CUDA available)
+#   seeker::helpers      - Header-only utility helpers
+#
+# Usage:
+#   find_package(seeker REQUIRED)
+#   target_link_libraries(my_tool PRIVATE seeker::cpu seeker::memory)
+#
+# Requirements:
+#   fmt must be available (all domains use fmt for formatting).
+# ==============================================================================
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# fmt is required by all domains
+find_dependency(fmt)
+
+# CUDA is optional -- needed only for seeker::gpu_cuda
+find_package(CUDAToolkit QUIET)
+
+include("${CMAKE_CURRENT_LIST_DIR}/seekerTargets.cmake")
+
+check_required_components(seeker)

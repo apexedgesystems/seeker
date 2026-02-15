@@ -1,0 +1,11 @@
+# repo ignores
+compile_commands.json
+/build/
+/output/
+/tmp/
+/.archive/
+/docs/standards/
+.venv
+
+# dev ignores
+/.vscode/
