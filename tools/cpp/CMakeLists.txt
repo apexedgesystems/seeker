@@ -156,7 +156,7 @@ foreach (
 endforeach ()
 
 # ------------------------------------------------------------------------------
-# Finalize (aggregate cpp_tools target)
+# Finalize (aggregate seeker_cpp_tools target)
 # ------------------------------------------------------------------------------
 
 seeker_finalize_cpp_tools()

@@ -608,16 +608,16 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_finalize_cpp_tools()
 #
-# Creates the cpp_tools aggregate target from all registered tools.
+# Creates the ${PROJECT_NAME}_cpp_tools aggregate target from all registered tools.
 # Call once at the end of tools/cpp/CMakeLists.txt.
 # ------------------------------------------------------------------------------
 function (seeker_finalize_cpp_tools)
   get_property(_tools GLOBAL PROPERTY SEEKER_CPP_TOOLS)
   if (_tools)
-    add_custom_target(cpp_tools DEPENDS ${_tools})
+    add_custom_target(${PROJECT_NAME}_cpp_tools DEPENDS ${_tools})
     if (SEEKER_TARGETS_VERBOSE)
       list(LENGTH _tools _count)
-      message(STATUS "[seeker] cpp_tools aggregate target: ${_count} tools")
+      message(STATUS "[seeker] ${PROJECT_NAME}_cpp_tools aggregate target: ${_count} tools")
     endif ()
   endif ()
 endfunction ()

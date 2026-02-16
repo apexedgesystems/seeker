@@ -23,11 +23,11 @@ TOOLS_MK_GUARD := 1
 tools: tools-cpp
 	$(call log,tools,All tools built)
 
-# Build C++ tools only (skips if no cpp_tools target exists)
+# Build C++ tools only (skips if no seeker_cpp_tools target exists)
 tools-cpp: prep
 	@test -f "$(BUILD_DIR)/CMakeCache.txt" || cmake --preset $(HOST_DEBUG_PRESET) $(CMAKE_VERBOSE_FLAG)
-	@cd "$(BUILD_DIR)" && if ninja -t query cpp_tools >/dev/null 2>&1; then \
-	  printf '[tools] Building C++ tools\n'; ninja cpp_tools; \
+	@cd "$(BUILD_DIR)" && if ninja -t query seeker_cpp_tools >/dev/null 2>&1; then \
+	  printf '[tools] Building C++ tools\n'; ninja seeker_cpp_tools; \
 	else printf '[tools] No C++ tools to build\n'; fi
 
 # ------------------------------------------------------------------------------
