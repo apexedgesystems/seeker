@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.24)
 # ------------------------------------------------------------------------------
 project(
   seeker
-  VERSION 1.0.0
+  VERSION 1.0.1
   LANGUAGES C CXX
   DESCRIPTION "System diagnostics library with hardware introspection and RT-safety annotations"
 )
