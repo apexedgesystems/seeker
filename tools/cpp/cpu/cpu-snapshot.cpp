@@ -90,8 +90,10 @@ void printJsonSnapshot(const cpu::CpuTopology& topo, const cpu::CpuFeatures& fea
   fmt::print("  \"features\": {{\n");
   fmt::print("    \"vendor\": \"{}\",\n", feat.vendor.data());
   fmt::print("    \"brand\": \"{}\",\n", feat.brand.data());
+  fmt::print("    \"arch\": \"{}\",\n", cpu::toString(feat.arch));
   fmt::print("    \"avx\": {}, \"avx2\": {}, \"avx512f\": {},\n", feat.avx, feat.avx2,
              feat.avx512f);
+  fmt::print("    \"neon\": {}, \"sve\": {}, \"sve2\": {},\n", feat.neon, feat.sve, feat.sve2);
   fmt::print("    \"invariantTsc\": {}\n", feat.invariantTsc);
   fmt::print("  }},\n");
 
@@ -261,7 +263,11 @@ void printBriefSummary(const cpu::CpuTopology& topo, const cpu::CpuFeatures& fea
 
   // Key features for RT
   fmt::print("\nRT-Critical:\n");
-  fmt::print("  Invariant TSC: {}\n", feat.invariantTsc ? "yes" : "NO");
+  if (feat.isX86()) {
+    fmt::print("  Invariant TSC: {}\n", feat.invariantTsc ? "yes" : "NO");
+  } else {
+    fmt::print("  Invariant TSC: n/a ({})\n", cpu::toString(feat.arch));
+  }
 }
 
 } // namespace

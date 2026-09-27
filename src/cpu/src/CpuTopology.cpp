@@ -163,8 +163,8 @@ CpuTopology getCpuTopology() noexcept {
     return topo;
   }
 
-  // Map: (packageId, coreId) -> CoreInfo
-  std::map<std::pair<int, int>, CoreInfo> coreMap;
+  // Map: (packageId, sibling CPU list) -> CoreInfo
+  std::map<std::pair<int, std::string>, CoreInfo> coreMap;
 
   // Track unique packages and NUMA nodes
   std::map<int, bool> seenPackages;
@@ -202,8 +202,19 @@ CpuTopology getCpuTopology() noexcept {
       }
     }
 
+    // Identify a physical core by the logical CPUs that share it. core_id alone
+    // is not unique on some ARM platforms, which report core_id=0 for every
+    // core and distinguish cores only by cluster_id.
+    std::string siblings = readLine(TOPO_DIR / "core_cpus_list");
+    if (siblings.empty()) {
+      siblings = readLine(TOPO_DIR / "thread_siblings_list");
+    }
+    if (siblings.empty()) {
+      siblings = std::to_string(CORE_ID);
+    }
+
     // Build/update core entry
-    const auto KEY = std::make_pair(PKG_ID, CORE_ID);
+    const auto KEY = std::make_pair(PKG_ID, siblings);
     CoreInfo& core = coreMap[KEY];
 
     if (core.coreId == -1) {

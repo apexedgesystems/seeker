@@ -53,7 +53,21 @@ void printTopology(const cpu::CpuTopology& topo) {
   fmt::print("  Packages:       {}\n", topo.packages);
   fmt::print("  Physical cores: {}\n", topo.physicalCores);
   fmt::print("  Logical CPUs:   {}\n", topo.logicalCpus);
-  fmt::print("  Threads/core:   {}\n", topo.threadsPerCore());
+  // Hybrid CPUs mix cores with and without SMT; show the real spread
+  std::size_t minThreads = 0;
+  std::size_t maxThreads = 0;
+  for (const auto& CORE : topo.cores) {
+    const std::size_t N = CORE.threadCpuIds.size();
+    if (minThreads == 0 || N < minThreads)
+      minThreads = N;
+    if (N > maxThreads)
+      maxThreads = N;
+  }
+  if (minThreads != maxThreads) {
+    fmt::print("  Threads/core:   {}-{} (mixed core types)\n", minThreads, maxThreads);
+  } else {
+    fmt::print("  Threads/core:   {}\n", topo.threadsPerCore());
+  }
   fmt::print("  NUMA nodes:     {}\n", topo.numaNodes);
 
   for (const auto& CACHE : topo.sharedCaches) {
@@ -62,10 +76,59 @@ void printTopology(const cpu::CpuTopology& topo) {
   }
 }
 
+/// aarch64 feature lines (x86-only lines such as Invariant TSC are omitted).
+void printArmFeatures(const cpu::CpuFeatures& feat) {
+  std::string parts;
+  for (std::uint8_t i = 0; i < feat.armPartCount; ++i) {
+    parts += fmt::format("{}0x{:03x}", (i == 0) ? "" : ", ", feat.armParts[i]);
+  }
+  fmt::print("  MIDR:   implementer 0x{:02x}, part {}\n", feat.armImplementer,
+             parts.empty() ? "(unknown)" : parts);
+
+  std::string simd;
+  if (feat.neon)
+    simd += "NEON ";
+  if (feat.sve)
+    simd += "SVE ";
+  if (feat.sve2)
+    simd += "SVE2 ";
+  if (feat.dotprod)
+    simd += "DOTPROD ";
+  if (feat.i8mm)
+    simd += "I8MM ";
+  if (feat.bf16)
+    simd += "BF16 ";
+  fmt::print("  SIMD:   {}\n", simd.empty() ? "(none)" : simd);
+
+  std::string crypto;
+  if (feat.aes)
+    crypto += "AES ";
+  if (feat.pmull)
+    crypto += "PMULL ";
+  if (feat.sha1)
+    crypto += "SHA1 ";
+  if (feat.sha2)
+    crypto += "SHA2 ";
+  if (feat.sha3)
+    crypto += "SHA3 ";
+  if (feat.sha512)
+    crypto += "SHA512 ";
+  if (feat.crc32)
+    crypto += "CRC32 ";
+  fmt::print("  Crypto: {}\n", crypto.empty() ? "(none)" : crypto);
+
+  fmt::print("  Other:  {}\n", feat.atomics ? "LSE " : "(none)");
+}
+
 void printFeatures(const cpu::CpuFeatures& feat) {
   fmt::print("\n=== CPU Features ===\n");
   fmt::print("  Vendor: {}\n", feat.vendor.data());
   fmt::print("  Brand:  {}\n", feat.brand.data());
+
+  if (feat.isArm()) {
+    printArmFeatures(feat);
+    return;
+  }
 
   // SIMD features
   std::string simd;
@@ -157,12 +220,30 @@ void printFrequency(const cpu::CpuFrequencySummary& freq) {
 
   fmt::print("  Current:  {} - {} MHz\n", minCur / 1000, maxCur / 1000);
 
-  if (freq.cores[0].maxKHz > 0) {
-    fmt::print("  Range:    {} - {} MHz\n", freq.cores[0].minKHz / 1000,
-               freq.cores[0].maxKHz / 1000);
+  // Range across all cores: hybrid CPUs have different limits per core type
+  std::int64_t minLimit = 0;
+  std::int64_t maxLimit = 0;
+  std::int64_t smallestMax = 0;
+  bool anyTurbo = false;
+  for (const auto& CORE : freq.cores) {
+    if (CORE.maxKHz <= 0) {
+      continue;
+    }
+    if (minLimit == 0 || CORE.minKHz < minLimit)
+      minLimit = CORE.minKHz;
+    if (CORE.maxKHz > maxLimit)
+      maxLimit = CORE.maxKHz;
+    if (smallestMax == 0 || CORE.maxKHz < smallestMax)
+      smallestMax = CORE.maxKHz;
+    anyTurbo = anyTurbo || CORE.turboAvailable;
   }
 
-  if (freq.cores[0].turboAvailable) {
+  if (maxLimit > 0) {
+    fmt::print("  Range:    {} - {} MHz{}\n", minLimit / 1000, maxLimit / 1000,
+               smallestMax != maxLimit ? " (max varies by core type)" : "");
+  }
+
+  if (anyTurbo) {
     fmt::print("  Turbo:    available\n");
   }
 }
@@ -254,6 +335,7 @@ void printJson(const cpu::CpuTopology& topo, const cpu::CpuFeatures& feat,
   fmt::print("  \"features\": {{\n");
   fmt::print("    \"vendor\": \"{}\",\n", feat.vendor.data());
   fmt::print("    \"brand\": \"{}\",\n", feat.brand.data());
+  fmt::print("    \"arch\": \"{}\",\n", cpu::toString(feat.arch));
   fmt::print("    \"sse\": {}, \"sse2\": {}, \"sse3\": {}, \"ssse3\": {},\n", feat.sse, feat.sse2,
              feat.sse3, feat.ssse3);
   fmt::print("    \"sse41\": {}, \"sse42\": {}, \"avx\": {}, \"avx2\": {},\n", feat.sse41,
@@ -265,6 +347,18 @@ void printJson(const cpu::CpuTopology& topo, const cpu::CpuFeatures& feat,
   fmt::print("    \"popcnt\": {}, \"bmi1\": {}, \"bmi2\": {},\n", feat.popcnt, feat.bmi1,
              feat.bmi2);
   fmt::print("    \"rdrand\": {}, \"rdseed\": {},\n", feat.rdrand, feat.rdseed);
+  fmt::print(
+      "    \"neon\": {}, \"sve\": {}, \"sve2\": {}, \"dotprod\": {}, \"i8mm\": {}, \"bf16\": {},\n",
+      feat.neon, feat.sve, feat.sve2, feat.dotprod, feat.i8mm, feat.bf16);
+  fmt::print("    \"pmull\": {}, \"sha1\": {}, \"sha2\": {}, \"sha3\": {}, \"sha512\": {},\n",
+             feat.pmull, feat.sha1, feat.sha2, feat.sha3, feat.sha512);
+  fmt::print("    \"crc32\": {}, \"atomics\": {},\n", feat.crc32, feat.atomics);
+  fmt::print("    \"armImplementer\": {}, \"armPart\": {}, \"armParts\": [", feat.armImplementer,
+             feat.armPart);
+  for (std::uint8_t i = 0; i < feat.armPartCount; ++i) {
+    fmt::print("{}{}", (i == 0) ? "" : ", ", feat.armParts[i]);
+  }
+  fmt::print("],\n");
   fmt::print("    \"invariantTsc\": {}\n", feat.invariantTsc);
   fmt::print("  }},\n");
 
