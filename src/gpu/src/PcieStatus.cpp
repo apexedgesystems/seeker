@@ -2,13 +2,17 @@
  * @file PcieStatus.cpp
  * @brief PCIe link status collection via sysfs.
  * @note Reads /sys/bus/pci/devices/ for link width, speed, and NUMA node.
+ * @note Device index -> BDF mapping comes from GpuTopology (NVML/CUDA/sysfs).
  */
 
 #include "src/gpu/inc/PcieStatus.hpp"
+#include "src/gpu/inc/GpuTopology.hpp"
 
+#include <array>      // std::array
 #include <cstdlib>    // std::atoi
 #include <filesystem> // std::filesystem
 #include <fstream>    // std::ifstream
+#include <utility>    // std::move
 
 #include <fmt/core.h>
 
@@ -110,6 +114,25 @@ inline PcieStatus querySysfsPcie(const std::string& bdf) noexcept {
   // NUMA node
   status.numaNode = readInt(DEV_PATH / "numa_node", -1);
 
+  // Integrated SoC GPUs (e.g., on Jetson) sit behind an upstream bridge that
+  // reports no link (width 0 or speed Unknown); the endpoint's own attributes
+  // then describe a virtual link. Zero the link fields so callers treat it as
+  // "no link info" instead of degraded.
+  std::error_code ec;
+  const fs::path UPSTREAM = fs::canonical(DEV_PATH, ec).parent_path();
+  if (!ec && pathExists(UPSTREAM / "max_link_width")) {
+    const int UP_WIDTH = readInt(UPSTREAM / "max_link_width", 0);
+    const PcieGeneration UP_GEN = parsePcieGeneration(readLine(UPSTREAM / "max_link_speed"));
+    if (UP_WIDTH <= 0 || UP_GEN == PcieGeneration::Unknown) {
+      status.currentWidth = 0;
+      status.currentSpeed.clear();
+      status.currentGen = PcieGeneration::Unknown;
+      status.maxWidth = 0;
+      status.maxSpeed.clear();
+      status.maxGen = PcieGeneration::Unknown;
+    }
+  }
+
   return status;
 }
 
@@ -179,6 +202,13 @@ PcieGeneration parsePcieGeneration(const std::string& speed) noexcept {
 
 /* ----------------------------- PcieStatus ----------------------------- */
 
+bool PcieStatus::hasLinkInfo() const noexcept {
+  // Integrated devices may expose placeholder attributes (width 255, speed "Unknown")
+  constexpr int MAX_LINK_WIDTH = 32;
+  return !bdf.empty() && maxWidth > 0 && maxWidth <= MAX_LINK_WIDTH &&
+         maxGen != PcieGeneration::Unknown;
+}
+
 bool PcieStatus::isAtMaxLink() const noexcept {
   return currentWidth == maxWidth && currentGen == maxGen;
 }
@@ -212,7 +242,16 @@ PcieStatus getPcieStatus(int deviceIndex) noexcept {
   }
 #endif
 
-  (void)deviceIndex;
+  if (deviceIndex < 0) {
+    return status;
+  }
+
+  // BDF via topology (NVML for NVIDIA, sysfs for other display controllers)
+  const GpuDevice DEV = getGpuDevice(deviceIndex);
+  if (!DEV.pciBdf.empty()) {
+    status = querySysfsPcie(DEV.pciBdf);
+    status.deviceIndex = deviceIndex;
+  }
   return status;
 }
 
@@ -221,15 +260,18 @@ PcieStatus getPcieStatusByBdf(const std::string& bdf) noexcept { return querySys
 std::vector<PcieStatus> getAllPcieStatus() noexcept {
   std::vector<PcieStatus> result;
 
-#if COMPAT_CUDA_AVAILABLE
-  int count = 0;
-  if (cudaGetDeviceCount(&count) == cudaSuccess && count > 0) {
-    result.reserve(static_cast<std::size_t>(count));
-    for (int i = 0; i < count; ++i) {
-      result.push_back(getPcieStatus(i));
+  // One entry per topology device, same deviceIndex; link fields stay zeroed
+  // when sysfs exposes no link attributes (e.g., integrated GPUs).
+  const GpuTopology TOPO = getGpuTopology();
+  result.reserve(TOPO.devices.size());
+  for (const auto& DEV : TOPO.devices) {
+    PcieStatus status{};
+    if (!DEV.pciBdf.empty()) {
+      status = querySysfsPcie(DEV.pciBdf);
     }
+    status.deviceIndex = DEV.deviceIndex;
+    result.push_back(std::move(status));
   }
-#endif
 
   return result;
 }

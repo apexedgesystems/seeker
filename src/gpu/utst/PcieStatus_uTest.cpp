@@ -8,12 +8,15 @@
  */
 
 #include "src/gpu/inc/PcieStatus.hpp"
+#include "src/gpu/inc/GpuTopology.hpp"
 
 #include <gtest/gtest.h>
 
 using seeker::gpu::getAllPcieStatus;
+using seeker::gpu::getGpuTopology;
 using seeker::gpu::getPcieStatus;
 using seeker::gpu::getPcieStatusByBdf;
+using seeker::gpu::GpuTopology;
 using seeker::gpu::parsePcieGeneration;
 using seeker::gpu::pcieBandwidthPerLaneMBps;
 using seeker::gpu::PcieGeneration;
@@ -137,6 +140,40 @@ TEST(PcieStatusTest, CurrentBandwidth) {
   EXPECT_GT(status.currentBandwidthMBps(), 0);
 }
 
+/** @test Default status has no link info. */
+TEST(PcieStatusTest, DefaultHasNoLinkInfo) {
+  PcieStatus status{};
+  EXPECT_FALSE(status.hasLinkInfo());
+}
+
+/** @test BDF without link widths (integrated GPU) has no link info. */
+TEST(PcieStatusTest, BdfWithoutLinkHasNoLinkInfo) {
+  PcieStatus status{};
+  status.bdf = "0000:01:00.0";
+  EXPECT_FALSE(status.hasLinkInfo());
+  status.maxWidth = 16;
+  status.maxGen = PcieGeneration::Gen4;
+  EXPECT_TRUE(status.hasLinkInfo());
+}
+
+/** @test Placeholder attributes (width 255, speed "Unknown") are not link info. */
+TEST(PcieStatusTest, PlaceholderLinkHasNoLinkInfo) {
+  PcieStatus status{};
+  status.bdf = "0000:00:02.0";
+  status.maxWidth = 255;
+  status.maxGen = parsePcieGeneration("Unknown");
+  EXPECT_FALSE(status.hasLinkInfo());
+
+  // A width beyond x32 is a placeholder even when a max speed is reported
+  status.maxWidth = 63;
+  status.maxGen = parsePcieGeneration("64.0 GT/s PCIe");
+  EXPECT_FALSE(status.hasLinkInfo());
+
+  // x32 is the widest link the PCIe specification defines
+  status.maxWidth = 32;
+  EXPECT_TRUE(status.hasLinkInfo());
+}
+
 /** @test PcieStatus::toString not empty. */
 TEST(PcieStatusTest, ToStringNotEmpty) {
   PcieStatus status{};
@@ -161,6 +198,55 @@ TEST(PcieApiTest, InvalidBdfReturnsDefault) {
 TEST(PcieApiTest, GetAllReturnsVector) {
   std::vector<PcieStatus> all = getAllPcieStatus();
   EXPECT_GE(all.size(), 0);
+}
+
+/** @test getPcieStatusByBdf for a nonexistent device has no link info. */
+TEST(PcieApiTest, NonexistentBdfNoLinkInfo) {
+  PcieStatus status = getPcieStatusByBdf("ffff:ff:1f.7");
+  EXPECT_EQ(status.bdf, "ffff:ff:1f.7");
+  EXPECT_FALSE(status.hasLinkInfo());
+}
+
+/** @test getAllPcieStatus has one entry per topology device with matching BDF. */
+TEST(PcieApiTest, AllMatchesTopology) {
+  const GpuTopology TOPO = getGpuTopology();
+  const std::vector<PcieStatus> ALL = getAllPcieStatus();
+  ASSERT_EQ(ALL.size(), TOPO.devices.size());
+  for (std::size_t i = 0; i < ALL.size(); ++i) {
+    EXPECT_EQ(ALL[i].deviceIndex, TOPO.devices[i].deviceIndex);
+    EXPECT_EQ(ALL[i].bdf, TOPO.devices[i].pciBdf);
+  }
+}
+
+/** @test Link attributes, when present, are self-consistent. */
+TEST(PcieApiTest, LinkInfoConsistent) {
+  const std::vector<PcieStatus> ALL = getAllPcieStatus();
+  if (ALL.empty()) {
+    GTEST_SKIP() << "No GPUs present";
+  }
+  for (const auto& S : ALL) {
+    EXPECT_FALSE(S.bdf.empty());
+    if (!S.hasLinkInfo()) {
+      continue; // Integrated GPU without link attributes
+    }
+    EXPECT_GE(S.currentWidth, 0);
+    EXPECT_LE(S.currentWidth, S.maxWidth);
+    EXPECT_GE(S.numaNode, -1);
+  }
+}
+
+/** @test getPcieStatus(i) matches getAllPcieStatus entry i. */
+TEST(PcieApiTest, SingleMatchesAll) {
+  const std::vector<PcieStatus> ALL = getAllPcieStatus();
+  if (ALL.empty()) {
+    GTEST_SKIP() << "No GPUs present";
+  }
+  for (const auto& S : ALL) {
+    const PcieStatus SINGLE = getPcieStatus(S.deviceIndex);
+    EXPECT_EQ(SINGLE.deviceIndex, S.deviceIndex);
+    EXPECT_EQ(SINGLE.bdf, S.bdf);
+    EXPECT_EQ(SINGLE.maxWidth, S.maxWidth);
+  }
 }
 
 /** @test getPcieStatus is deterministic for invalid index. */

@@ -79,6 +79,12 @@ struct PcieStatus {
   int txThroughputKBps{0}; ///< TX throughput
   int rxThroughputKBps{0}; ///< RX throughput
 
+  /// @brief Check if valid sysfs link attributes were read (BDF known, max width
+  ///        in 1..32, max generation known).
+  /// @note False for integrated GPUs without (or with placeholder) link attributes.
+  /// @note RT-safe: No allocation.
+  [[nodiscard]] bool hasLinkInfo() const noexcept;
+
   /// @brief Check if link is running at maximum capability.
   [[nodiscard]] bool isAtMaxLink() const noexcept;
 
@@ -96,10 +102,11 @@ struct PcieStatus {
 /* ----------------------------- API ----------------------------- */
 
 /**
- * @brief Query PCIe status for a GPU by CUDA device index.
- * @param deviceIndex GPU ordinal (0-based).
- * @return Populated status; defaults on failure.
- * @note RT-safe for single device query (minimal allocation).
+ * @brief Query PCIe status for a GPU by topology device index.
+ * @param deviceIndex GPU ordinal (0-based, same as GpuTopology / NVML ordinal).
+ * @return Populated status; defaults on failure. BDF set but hasLinkInfo() false
+ *         when the device has no sysfs link attributes.
+ * @note NOT RT-safe: Resolves BDF via NVML/sysfs enumeration, performs I/O.
  */
 [[nodiscard]] PcieStatus getPcieStatus(int deviceIndex) noexcept;
 
@@ -113,8 +120,8 @@ struct PcieStatus {
 
 /**
  * @brief Query PCIe status for all GPUs.
- * @return Vector of status for each GPU.
- * @note NOT RT-safe: Allocates vector.
+ * @return One entry per GpuTopology device (matching deviceIndex).
+ * @note NOT RT-safe: Allocates vector, performs I/O.
  */
 [[nodiscard]] std::vector<PcieStatus> getAllPcieStatus() noexcept;
 

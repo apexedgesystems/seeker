@@ -314,9 +314,16 @@ struct GpuTopology {
 
 #### Data Sources
 
-- CUDA runtime API (`cudaGetDeviceCount`, `cudaGetDeviceProperties`)
-- NVML for additional details
-- sysfs fallback for non-NVIDIA GPUs
+- CUDA runtime API (`cudaGetDeviceCount`, `cudaGetDeviceProperties`) when compiled as CUDA
+- NVML (`nvmlDeviceGetName`, `nvmlDeviceGetUUID`, `nvmlDeviceGetMemoryInfo`,
+  `nvmlDeviceGetPciInfo_v3`, `nvmlDeviceGetCudaComputeCapability`) for NVIDIA GPUs otherwise; the
+  module is compiled as C++ in every build preset, CUDA-enabled ones included. SM count, CUDA
+  cores, execution limits, and memory bus width come only from the CUDA runtime and stay 0.
+- sysfs for other GPUs: only DRM cards backed by a PCI display controller (class `0x03xxxx`) are
+  reported; platform/virtual DRM devices (evdi, vc4/v3d, host1x) are skipped, and BDFs already
+  enumerated via NVML are not duplicated. Name is the PCI `label`, else `"<Vendor> GPU [vvvv:dddd] (driver)"`.
+- NVIDIA devices come first (NVML ordinals), then sysfs devices ordered by DRM card number.
+  BDFs use sysfs form (`0000:01:00.0`).
 
 ---
 
@@ -545,8 +552,10 @@ struct GpuDriverStatus {
 
 #### Data Sources
 
-- NVML (`nvmlDeviceGetPersistenceMode`, `nvmlDeviceGetComputeMode`)
-- CUDA runtime (`cudaDriverGetVersion`, `cudaRuntimeGetVersion`)
+- NVML (`nvmlDeviceGetPersistenceMode`, `nvmlDeviceGetComputeMode`, `nvmlSystemGetDriverVersion`)
+- NVML (`nvmlSystemGetCudaDriverVersion_v2`) for `cudaDriverVersion` when not compiled as CUDA
+- CUDA runtime (`cudaDriverGetVersion`, `cudaRuntimeGetVersion`) when compiled as CUDA;
+  `cudaRuntimeVersion` stays 0 otherwise (`versionsCompatible()` then returns true)
 
 ---
 
@@ -596,6 +605,7 @@ struct PcieStatus {
   int txThroughputKBps{0};
   int rxThroughputKBps{0};
 
+  bool hasLinkInfo() const noexcept;  // Valid link attributes (false for integrated GPUs)
   bool isAtMaxLink() const noexcept;
   int theoreticalBandwidthMBps() const noexcept;
   int currentBandwidthMBps() const noexcept;
@@ -606,13 +616,13 @@ struct PcieStatus {
 #### API
 
 ```cpp
-/// Query PCIe status by device index (RT-safe)
+/// Query PCIe status by topology device index (NOT RT-safe: resolves BDF via NVML/sysfs)
 [[nodiscard]] PcieStatus getPcieStatus(int deviceIndex) noexcept;
 
 /// Query PCIe status by BDF string (RT-safe)
 [[nodiscard]] PcieStatus getPcieStatusByBdf(const std::string& bdf) noexcept;
 
-/// Query PCIe status for all GPUs (NOT RT-safe)
+/// Query PCIe status for all GPUs, one entry per GpuTopology device (NOT RT-safe)
 [[nodiscard]] std::vector<PcieStatus> getAllPcieStatus() noexcept;
 
 /// Get bandwidth per lane (RT-safe)
@@ -625,7 +635,10 @@ struct PcieStatus {
 #### Data Sources
 
 - sysfs (`/sys/bus/pci/devices/<bdf>/current_link_speed`)
-- NVML (`nvmlDeviceGetPcieThroughput`)
+- BDF from `GpuTopology` (NVML/CUDA for NVIDIA, sysfs for others)
+- Integrated GPUs (no link attributes, placeholder values such as width 255, or a virtual link
+  behind an upstream bridge that reports no link) keep `bdf` set and report `hasLinkInfo()` false;
+  the virtual-link case also has its link fields zeroed
 
 ---
 

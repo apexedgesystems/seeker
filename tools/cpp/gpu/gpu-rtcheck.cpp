@@ -232,9 +232,22 @@ CheckStatus checkDriverVersions(const gpu::GpuDriverStatus& drv) {
   CheckStatus status;
   status.name = "Driver Versions";
 
-  if (drv.cudaDriverVersion == 0 || drv.cudaRuntimeVersion == 0) {
+  if (drv.driverVersion.empty() && drv.cudaDriverVersion == 0) {
     status.result = CheckResult::SKIP;
     status.message = "Version info not available";
+    return status;
+  }
+
+  // The runtime version comes only from the CUDA runtime; report what the driver supports
+  if (drv.cudaRuntimeVersion == 0) {
+    status.result = CheckResult::PASS;
+    if (drv.cudaDriverVersion > 0) {
+      status.message = fmt::format("Driver {} (supports CUDA {})",
+                                   drv.driverVersion.empty() ? "unknown" : drv.driverVersion,
+                                   gpu::GpuDriverStatus::formatCudaVersion(drv.cudaDriverVersion));
+    } else {
+      status.message = fmt::format("Driver {} (CUDA version unknown)", drv.driverVersion);
+    }
     return status;
   }
 
@@ -262,6 +275,12 @@ CheckStatus checkPcieLink(const gpu::PcieStatus& pcie) {
   if (pcie.bdf.empty()) {
     status.result = CheckResult::SKIP;
     status.message = "PCIe info not available";
+    return status;
+  }
+
+  if (!pcie.hasLinkInfo()) {
+    status.result = CheckResult::SKIP;
+    status.message = fmt::format("{}: no PCIe link attributes (integrated GPU?)", pcie.bdf);
     return status;
   }
 
@@ -333,6 +352,30 @@ CheckStatus checkTemperature(const gpu::GpuTelemetry& telem) {
   return status;
 }
 
+/// Placeholder for an NVML-backed check on a device without NVML data.
+CheckStatus skipNoNvml(const char* name, const gpu::GpuDevice& dev) {
+  CheckStatus status;
+  status.name = name;
+  status.result = CheckResult::SKIP;
+  status.message = (dev.vendor == gpu::GpuVendor::Nvidia) ? "NVML data not available"
+                                                          : "Not applicable (non-NVIDIA GPU)";
+  return status;
+}
+
+/// Verdict string from counts; UNKNOWN when no check produced a result.
+const char* verdictFor(int passCount, int warnCount, int failCount) noexcept {
+  if (failCount > 0) {
+    return "NOT_RT_READY";
+  }
+  if (warnCount > 0) {
+    return "PARTIAL";
+  }
+  if (passCount == 0) {
+    return "UNKNOWN";
+  }
+  return "RT_READY";
+}
+
 /* ----------------------------- Output Functions ----------------------------- */
 
 void printHumanDevice(int deviceIndex, const std::string& name,
@@ -376,6 +419,8 @@ void printHumanDevice(int deviceIndex, const std::string& name,
     fmt::print("\033[31mVerdict: NOT RT-READY\033[0m\n");
   } else if (warnCount > 0) {
     fmt::print("\033[33mVerdict: PARTIAL (review warnings)\033[0m\n");
+  } else if (passCount == 0) {
+    fmt::print("\033[90mVerdict: UNKNOWN (no applicable checks)\033[0m\n");
   } else {
     fmt::print("\033[32mVerdict: RT-READY\033[0m\n");
   }
@@ -422,12 +467,7 @@ void printJsonDevice(int deviceIndex, const std::string& name,
     }
   }
 
-  const char* verdict = "RT_READY";
-  if (failCount > 0) {
-    verdict = "NOT_RT_READY";
-  } else if (warnCount > 0) {
-    verdict = "PARTIAL";
-  }
+  const char* verdict = verdictFor(passCount, warnCount, failCount);
 
   fmt::print("      \"summary\": {{\"pass\": {}, \"warn\": {}, \"fail\": {}}},\n", passCount,
              warnCount, failCount);
@@ -508,9 +548,11 @@ int main(int argc, char* argv[]) {
     gpu::PcieStatus pcie;
     gpu::GpuIsolation iso;
 
+    bool hasNvml = false;
     for (const auto& D : DRV_LIST) {
       if (D.deviceIndex == DEV.deviceIndex) {
         drv = D;
+        hasNvml = true;
         break;
       }
     }
@@ -540,16 +582,30 @@ int main(int argc, char* argv[]) {
     }
 
     // Run checks
+    // NVML-backed checks only apply to devices NVML enumerated; defaults would
+    // otherwise produce misleading PASS/WARN results (and NVIDIA advice).
     std::vector<CheckStatus> checks;
-    checks.push_back(checkPersistence(drv));
-    checks.push_back(checkComputeMode(drv));
-    checks.push_back(checkTemperature(telem));
-    checks.push_back(checkThrottling(telem));
-    checks.push_back(checkEcc(mem));
-    checks.push_back(checkRetiredPages(mem));
-    checks.push_back(checkDriverVersions(drv));
-    checks.push_back(checkPcieLink(pcie));
-    checks.push_back(checkIsolation(iso));
+    if (hasNvml) {
+      checks.push_back(checkPersistence(drv));
+      checks.push_back(checkComputeMode(drv));
+      checks.push_back(checkTemperature(telem));
+      checks.push_back(checkThrottling(telem));
+      checks.push_back(checkEcc(mem));
+      checks.push_back(checkRetiredPages(mem));
+      checks.push_back(checkDriverVersions(drv));
+      checks.push_back(checkPcieLink(pcie));
+      checks.push_back(checkIsolation(iso));
+    } else {
+      checks.push_back(skipNoNvml("Persistence Mode", DEV));
+      checks.push_back(skipNoNvml("Compute Mode", DEV));
+      checks.push_back(skipNoNvml("Temperature", DEV));
+      checks.push_back(skipNoNvml("Throttling", DEV));
+      checks.push_back(skipNoNvml("ECC Memory", DEV));
+      checks.push_back(skipNoNvml("Retired Pages", DEV));
+      checks.push_back(skipNoNvml("Driver Versions", DEV));
+      checks.push_back(checkPcieLink(pcie));
+      checks.push_back(skipNoNvml("Process Isolation", DEV));
+    }
 
     // Determine exit code for this device
     for (const auto& CHECK : checks) {
