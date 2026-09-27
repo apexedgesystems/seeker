@@ -60,14 +60,14 @@ $ mem-rtcheck --json
 
 **Checks performed:**
 
-| Check          | PASS                                 | WARN                          | FAIL                       |
-| -------------- | ------------------------------------ | ----------------------------- | -------------------------- |
-| Hugepages      | Configured and free                  | None configured or all in use | -                          |
-| Memory Locking | Unlimited or sufficient for `--size` | Low limit (<64 MiB)           | Cannot lock requested size |
-| THP            | `never` or `madvise`                 | `always`                      | -                          |
-| Swappiness     | <= 30                                | 31-60                         | > 60                       |
-| Overcommit     | 0 (heuristic) or 2 (never)           | 1 (always)                    | -                          |
-| **ECC Memory** | **ECC enabled, no errors**           | **High CE count (>100)**      | **Any UE errors**          |
+| Check                                                  | PASS                                 | WARN                          | FAIL                       |
+| ------------------------------------------------------ | ------------------------------------ | ----------------------------- | -------------------------- |
+| Hugepages (SKIP if the kernel has no hugepage support) | Configured and free                  | None configured or all in use | -                          |
+| Memory Locking                                         | Unlimited or sufficient for `--size` | Low limit (<64 MiB)           | Cannot lock requested size |
+| THP                                                    | `never` or `madvise`                 | `always`                      | -                          |
+| Swappiness                                             | <= 30                                | 31-60                         | > 60                       |
+| Overcommit                                             | 0 (heuristic) or 2 (never)           | 1 (always)                    | -                          |
+| **ECC Memory**                                         | **ECC enabled, no errors**           | **High CE count (>100)**      | **Any UE errors**          |
 
 **Exit codes:** 0=pass, 1=warnings, 2=failures
 

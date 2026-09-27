@@ -229,10 +229,13 @@ struct KernelInfo {
   std::array<char, KERNEL_RELEASE_SIZE> release{};   // e.g., "6.1.0-rt5-amd64"
   std::array<char, KERNEL_VERSION_SIZE> version{};    // Full /proc/version string
 
-  // Preemption model
+  // Preemption model. On a PREEMPT_DYNAMIC kernel (not PREEMPT_RT), preempt is the
+  // active mode from /sys/kernel/debug/sched/preempt (root only) or a preempt= boot
+  // parameter ("full" and "lazy" map to PREEMPT), and UNKNOWN when neither is readable.
   PreemptModel preempt{PreemptModel::UNKNOWN};
-  std::array<char, PREEMPT_MODEL_SIZE> preemptStr{};  // Raw preempt model string
+  std::array<char, PREEMPT_MODEL_SIZE> preemptStr{};  // toString(preempt) or "dynamic (mode unknown)"
   bool rtPreemptPatched{false};                        // CONFIG_PREEMPT_RT=y detected
+  bool preemptDynamic{false};                          // PREEMPT_DYNAMIC kernel
 
   // RT cmdline flags
   bool nohzFull{false};      // nohz_full= present

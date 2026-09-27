@@ -36,7 +36,7 @@ $ storage-info --device nvme0n1
 
 **Output includes:**
 
-- Block device list with type (NVMe/SSD/HDD), size, sector sizes
+- Block device list with type (NVMe, SSD, HDD, SD/eMMC, Removable or Unknown), size, sector sizes
 - I/O scheduler and queue parameters per device
 - RT score per device
 - Block device mounts with filesystem type and options
@@ -60,14 +60,14 @@ $ storage-rtcheck --json
 
 **Checks performed:**
 
-| Check            | PASS                           | WARN            | FAIL      |
-| ---------------- | ------------------------------ | --------------- | --------- |
-| Device Types     | NVMe detected                  | HDD only        | -         |
-| Scheduler        | `none` (NVMe) or `mq-deadline` | Other scheduler | -         |
-| Queue Depth      | <= 32                          | > 128           | -         |
-| Read-ahead       | 0 or <= 128 KB                 | > 128 KB        | -         |
-| Mount Options    | noatime/relatime               | atime enabled   | nobarrier |
-| Overall RT Score | >= 70                          | 40-69           | < 40      |
+| Check            | PASS                           | WARN                                       | FAIL      |
+| ---------------- | ------------------------------ | ------------------------------------------ | --------- |
+| Device Types     | NVMe or SSD detected           | No NVMe or SSD (e.g., SD/eMMC or HDD only) | -         |
+| Scheduler        | `none` (NVMe) or `mq-deadline` | Other scheduler                            | -         |
+| Queue Depth      | <= 32                          | > 128                                      | -         |
+| Read-ahead       | 0 or <= 128 KB                 | > 128 KB                                   | -         |
+| Mount Options    | noatime/relatime               | atime enabled                              | nobarrier |
+| Overall RT Score | >= 70                          | 40-69                                      | < 40      |
 
 **Exit codes:** 0=pass, 1=warnings, 2=failures
 
@@ -134,9 +134,9 @@ $ storage-bench --quick --json
 | ---------------- | ---------------------------------- | ----------------- |
 | Sequential Write | Large sequential writes            | Throughput (MB/s) |
 | Sequential Read  | Large sequential reads (may cache) | Throughput (MB/s) |
-| fsync Latency    | Durability commit latency          | p99 latency (μs)  |
-| Random Read 4K   | Small random reads                 | Avg latency (μs)  |
-| Random Write 4K  | Small random writes with fsync     | Avg latency (μs)  |
+| fsync Latency    | Durability commit latency          | p99 latency (us)  |
+| Random Read 4K   | Small random reads                 | Avg latency (us)  |
+| Random Write 4K  | Small random writes with fsync     | Avg latency (us)  |
 
 ---
 

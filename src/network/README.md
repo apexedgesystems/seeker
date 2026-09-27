@@ -202,7 +202,7 @@ struct InterfaceInfo {
 
   bool isUp() const noexcept;       ///< operState == "up"
   bool isPhysical() const noexcept; ///< Has /sys/class/net/<if>/device
-  bool hasLink() const noexcept;    ///< isUp() && speedMbps > 0
+  bool hasLink() const noexcept;    ///< isUp(); no speed required (Wi-Fi reports none)
   std::string toString() const;     ///< NOT RT-safe
 };
 
@@ -1084,10 +1084,11 @@ int main() {
   fmt::print("Interfaces: {} found\n", interfaces.count);
   for (std::size_t i = 0; i < interfaces.count; ++i) {
     const auto& iface = interfaces.interfaces[i];
-    fmt::print("  {}: {} {}\n",
-               iface.ifname.data(),
-               iface.operState.data(),
-               iface.hasLink() ? formatSpeed(iface.speedMbps) : "no link");
+    // hasLink() follows operstate; Wi-Fi reports no speed
+    const std::string link = !iface.hasLink()      ? "no link"
+                             : iface.speedMbps > 0 ? formatSpeed(iface.speedMbps)
+                                                   : "link (speed not reported)";
+    fmt::print("  {}: {} {}\n", iface.ifname.data(), iface.operState.data(), link);
   }
 
   // 2. Socket Buffer Configuration
