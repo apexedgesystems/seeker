@@ -100,6 +100,11 @@ std::vector<CheckResult> runChecks() {
     } else if (SSD > 0) {
       r.status = CheckStatus::PASS;
       r.message = fmt::format("{} SSD(s) detected - good for RT", SSD);
+    } else if (DEVICES.countMmc() > 0) {
+      r.status = CheckStatus::WARN;
+      r.message =
+          fmt::format("{} SD/eMMC device(s) only - write latency can spike", DEVICES.countMmc());
+      r.recommendation = "Keep RT logging off SD cards; use NVMe/SSD or buffer writes in RAM.";
     } else if (HDD > 0) {
       r.status = CheckStatus::WARN;
       r.message = fmt::format("{} HDD(s) only - consider SSD/NVMe for RT workloads", HDD);

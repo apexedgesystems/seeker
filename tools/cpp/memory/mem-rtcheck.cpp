@@ -116,6 +116,13 @@ void printBytesHuman(std::uint64_t bytes) {
 CheckResult checkHugepages(const mem::HugepageStatus& hp) {
   CheckResult r{};
 
+  // No /sys/kernel/mm/hugepages: the kernel was built without hugepage support
+  if (hp.sizeCount == 0) {
+    r.status = CheckStatus::SKIP;
+    std::snprintf(r.message.data(), r.message.size(), "Kernel has no hugepage support");
+    return r;
+  }
+
   if (!hp.hasHugepages()) {
     r.status = CheckStatus::WARN;
     std::snprintf(r.message.data(), r.message.size(), "No hugepages configured");

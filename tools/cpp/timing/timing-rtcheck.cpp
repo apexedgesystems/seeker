@@ -16,6 +16,7 @@
 #include "src/helpers/inc/Args.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,6 +69,9 @@ Check checkClockSource(const timing::ClockSource& cs) {
   if (cs.isTsc()) {
     c.result = CheckResult::PASS;
     c.recommendation = "TSC is optimal for RT";
+  } else if (std::strcmp(cs.current.data(), "arch_sys_counter") == 0) {
+    c.result = CheckResult::PASS;
+    c.recommendation = "ARM architected timer is the standard RT clocksource on aarch64";
   } else if (cs.isHpet()) {
     c.result = CheckResult::WARN;
     c.recommendation = "HPET has higher latency than TSC; check if TSC is available";
@@ -419,9 +423,14 @@ int main(int argc, char* argv[]) {
     printHuman(checks, verbose);
   }
 
-  // Return non-zero if any failures
+  // Exit code: 0=pass, 1=warn, 2=fail (matches the other *-rtcheck tools)
   for (const auto& C : checks) {
     if (C.result == CheckResult::FAIL) {
+      return 2;
+    }
+  }
+  for (const auto& C : checks) {
+    if (C.result == CheckResult::WARN) {
       return 1;
     }
   }
