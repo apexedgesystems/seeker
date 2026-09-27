@@ -70,6 +70,22 @@ TEST(BlockDeviceMethodTest, IsSsdDetection) {
   EXPECT_FALSE(dev.isSsd());
 }
 
+/** @test SD cards and eMMC are reported as SD/eMMC, not SSD. */
+TEST(BlockDeviceMethodTest, IsMmcDetection) {
+  BlockDevice dev{};
+  std::strcpy(dev.name.data(), "mmcblk0");
+  dev.rotational = false;
+  dev.removable = false;
+
+  EXPECT_TRUE(dev.isMmc());
+  EXPECT_FALSE(dev.isSsd());
+  EXPECT_STREQ(dev.deviceType(), "SD/eMMC");
+
+  std::strcpy(dev.name.data(), "sda");
+  EXPECT_FALSE(dev.isMmc());
+  EXPECT_TRUE(dev.isSsd());
+}
+
 /** @test isHdd detects HDDs correctly. */
 TEST(BlockDeviceMethodTest, IsHddDetection) {
   BlockDevice dev{};

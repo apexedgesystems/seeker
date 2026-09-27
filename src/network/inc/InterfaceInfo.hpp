@@ -60,7 +60,7 @@ struct InterfaceInfo {
   /// @brief Check if this is a physical NIC (not loopback, veth, bridge, etc.).
   [[nodiscard]] bool isPhysical() const noexcept;
 
-  /// @brief Check if interface has valid link (up and speed > 0).
+  /// @brief Check if interface has valid link (operstate up; speed may be unknown, e.g. Wi-Fi).
   [[nodiscard]] bool hasLink() const noexcept;
 
   /// @brief Human-readable summary.

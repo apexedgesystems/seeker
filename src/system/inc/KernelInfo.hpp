@@ -85,6 +85,11 @@ struct KernelInfo {
   /// True if RT-PREEMPT patch detected (CONFIG_PREEMPT_RT=y).
   bool rtPreemptPatched{false};
 
+  /// True if the kernel is PREEMPT_DYNAMIC (model chosen at boot). The active
+  /// mode needs debugfs (root) or a preempt= boot parameter; preempt is
+  /// UNKNOWN when neither is readable.
+  bool preemptDynamic{false};
+
   /* --- RT-relevant cmdline flags --- */
 
   /// nohz_full= detected (tickless operation for RT cores).

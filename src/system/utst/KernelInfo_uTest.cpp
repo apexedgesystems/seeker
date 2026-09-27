@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <fstream>
 #include <string>
 
 using seeker::system::getKernelInfo;
@@ -57,10 +58,45 @@ TEST_F(KernelInfoTest, VersionContainsLinux) {
 
 /* ----------------------------- Preemption Model Tests ----------------------------- */
 
-/** @test Preemption model is set to a valid value. */
+/** @test Preemption model is set to a valid value (dynamic kernels may be unreadable). */
 TEST_F(KernelInfoTest, PreemptModelValid) {
+  if (info_.preemptDynamic && info_.preempt == PreemptModel::UNKNOWN) {
+    GTEST_SKIP() << "PREEMPT_DYNAMIC active mode needs debugfs (root) or a preempt= parameter";
+  }
   EXPECT_NE(info_.preempt, PreemptModel::UNKNOWN)
       << "Preemption model should be detected on any Linux kernel";
+}
+
+/** @test preemptDynamic follows the PREEMPT_DYNAMIC marker of a non-RT kernel version. */
+TEST_F(KernelInfoTest, PreemptDynamicMatchesVersion) {
+  const bool DYNAMIC_IN_VERSION = std::strstr(info_.version.data(), "PREEMPT_DYNAMIC") != nullptr;
+  const bool RT_IN_VERSION = std::strstr(info_.version.data(), "PREEMPT_RT") != nullptr;
+  EXPECT_EQ(info_.preemptDynamic, DYNAMIC_IN_VERSION && !RT_IN_VERSION) << info_.version.data();
+  if (info_.preemptDynamic) {
+    EXPECT_NE(info_.preempt, PreemptModel::PREEMPT_RT);
+    const std::string EXPECTED_STR = (info_.preempt == PreemptModel::UNKNOWN)
+                                         ? std::string("dynamic (mode unknown)")
+                                         : std::string(toString(info_.preempt));
+    EXPECT_EQ(std::string(info_.preemptModelStr()), EXPECTED_STR);
+  }
+}
+
+/** @test A PREEMPT_DYNAMIC kernel whose active mode is unreadable reports UNKNOWN, not full. */
+TEST_F(KernelInfoTest, DynamicModeUnknownWithoutSource) {
+  if (!info_.preemptDynamic) {
+    GTEST_SKIP() << "Kernel is not PREEMPT_DYNAMIC";
+  }
+  const bool DEBUGFS_READABLE = std::ifstream("/sys/kernel/debug/sched/preempt").good();
+  std::ifstream cmdlineFile("/proc/cmdline");
+  std::string cmdline;
+  std::getline(cmdlineFile, cmdline);
+  const bool HAS_PARAM =
+      cmdline.rfind("preempt=", 0) == 0 || cmdline.find(" preempt=") != std::string::npos;
+  if (DEBUGFS_READABLE || HAS_PARAM) {
+    GTEST_SKIP() << "Active preemption mode is readable on this system";
+  }
+  EXPECT_EQ(info_.preempt, PreemptModel::UNKNOWN);
+  EXPECT_STREQ(info_.preemptModelStr(), "dynamic (mode unknown)");
 }
 
 /** @test Preemption model string is non-empty. */

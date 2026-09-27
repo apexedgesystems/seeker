@@ -60,7 +60,10 @@ struct BlockDevice {
   /// @brief Check if device is NVMe (name starts with "nvme").
   [[nodiscard]] bool isNvme() const noexcept;
 
-  /// @brief Check if device is SSD (non-rotational, non-removable).
+  /// @brief Check if device is an SD card or eMMC (name starts with "mmcblk").
+  [[nodiscard]] bool isMmc() const noexcept;
+
+  /// @brief Check if device is SSD (non-rotational, non-removable, not SD/eMMC).
   [[nodiscard]] bool isSsd() const noexcept;
 
   /// @brief Check if device is HDD (rotational).
@@ -96,6 +99,7 @@ struct BlockDeviceList {
   [[nodiscard]] std::size_t countNvme() const noexcept;
   [[nodiscard]] std::size_t countSsd() const noexcept;
   [[nodiscard]] std::size_t countHdd() const noexcept;
+  [[nodiscard]] std::size_t countMmc() const noexcept;
 
   /// @brief Human-readable summary of all devices.
   /// @note NOT RT-safe: Allocates std::string.

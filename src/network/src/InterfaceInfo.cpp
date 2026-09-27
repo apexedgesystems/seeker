@@ -124,6 +124,15 @@ bool isVirtualInterface(const char* ifname) noexcept {
 
   char pathBuf[PATH_BUFFER_SIZE];
 
+  // Only Ethernet-framed links count as NICs (ARPHRD_ETHER = 1, which includes
+  // Wi-Fi). CAN (280) and other link types have a device symlink but are not NICs.
+  constexpr int ARPHRD_ETHER_TYPE = 1;
+  std::snprintf(pathBuf, sizeof(pathBuf), "%s/%s/type", NET_SYS_PATH, ifname);
+  const int LINK_TYPE = readFileInt(pathBuf, -1);
+  if (LINK_TYPE >= 0 && LINK_TYPE != ARPHRD_ETHER_TYPE) {
+    return true;
+  }
+
   // Standard check: device symlink exists (typical for PCIe/USB NICs)
   std::snprintf(pathBuf, sizeof(pathBuf), "%s/%s/device", NET_SYS_PATH, ifname);
   if (pathExists(pathBuf)) {
@@ -157,7 +166,9 @@ bool InterfaceInfo::isUp() const noexcept { return std::strcmp(operState.data(),
 
 bool InterfaceInfo::isPhysical() const noexcept { return !isVirtualInterface(ifname.data()); }
 
-bool InterfaceInfo::hasLink() const noexcept { return isUp() && speedMbps > 0; }
+// operstate "up" already requires carrier. Speed is not required: Wi-Fi and
+// some embedded MACs report no speed even with a working link.
+bool InterfaceInfo::hasLink() const noexcept { return isUp(); }
 
 std::string InterfaceInfo::toString() const {
   std::string out;

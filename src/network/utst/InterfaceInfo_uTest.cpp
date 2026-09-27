@@ -12,7 +12,10 @@
 
 #include <gtest/gtest.h>
 
+#include <net/if_arp.h> // ARPHRD_ETHER
+
 #include <cstring>
+#include <fstream>
 #include <string>
 
 using seeker::network::formatSpeed;
@@ -133,6 +136,20 @@ TEST(InterfaceListTest, PhysicalInterfacesArePhysical) {
   }
 }
 
+/** @test Interfaces whose link type is not Ethernet (e.g., CAN) are never physical NICs. */
+TEST(InterfaceListTest, NonEthernetLinkTypesNotPhysical) {
+  const InterfaceList LIST = getAllInterfaces();
+  for (std::size_t i = 0; i < LIST.count; ++i) {
+    const InterfaceInfo& IFACE = LIST.interfaces[i];
+    std::ifstream typeFile(std::string("/sys/class/net/") + IFACE.ifname.data() + "/type");
+    int linkType = -1;
+    if (!(typeFile >> linkType) || linkType == ARPHRD_ETHER) {
+      continue;
+    }
+    EXPECT_FALSE(IFACE.isPhysical()) << IFACE.ifname.data() << " has link type " << linkType;
+  }
+}
+
 /* ----------------------------- InterfaceInfo Helper Methods ----------------------------- */
 
 /** @test isUp returns correct value for known states. */
@@ -149,8 +166,8 @@ TEST(InterfaceInfoMethodsTest, IsUpCorrect) {
   EXPECT_FALSE(info.isUp());
 }
 
-/** @test hasLink requires both up state and speed. */
-TEST(InterfaceInfoMethodsTest, HasLinkRequiresBoth) {
+/** @test hasLink follows operational state; speed is optional (Wi-Fi reports none). */
+TEST(InterfaceInfoMethodsTest, HasLinkFollowsOperState) {
   InterfaceInfo info{};
 
   // Neither up nor speed
@@ -158,10 +175,10 @@ TEST(InterfaceInfoMethodsTest, HasLinkRequiresBoth) {
   info.speedMbps = 0;
   EXPECT_FALSE(info.hasLink());
 
-  // Up but no speed
+  // Up but no speed (e.g., Wi-Fi)
   std::strcpy(info.operState.data(), "up");
   info.speedMbps = 0;
-  EXPECT_FALSE(info.hasLink());
+  EXPECT_TRUE(info.hasLink());
 
   // Speed but not up
   std::strcpy(info.operState.data(), "down");
