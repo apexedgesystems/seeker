@@ -90,7 +90,9 @@ inline bool pathExists(const char* path) noexcept { return ::access(path, F_OK) 
 
 bool BlockDevice::isNvme() const noexcept { return std::strncmp(name.data(), "nvme", 4) == 0; }
 
-bool BlockDevice::isSsd() const noexcept { return !rotational && !removable; }
+bool BlockDevice::isMmc() const noexcept { return std::strncmp(name.data(), "mmcblk", 6) == 0; }
+
+bool BlockDevice::isSsd() const noexcept { return !rotational && !removable && !isMmc(); }
 
 bool BlockDevice::isHdd() const noexcept { return rotational && !removable; }
 
@@ -99,6 +101,9 @@ bool BlockDevice::isAdvancedFormat() const noexcept { return physicalBlockSize >
 const char* BlockDevice::deviceType() const noexcept {
   if (isNvme()) {
     return "NVMe";
+  }
+  if (isMmc()) {
+    return "SD/eMMC";
   }
   if (isHdd()) {
     return "HDD";
@@ -146,6 +151,16 @@ std::size_t BlockDeviceList::countSsd() const noexcept {
   std::size_t n = 0;
   for (std::size_t i = 0; i < count; ++i) {
     if (devices[i].isSsd() && !devices[i].isNvme()) {
+      ++n;
+    }
+  }
+  return n;
+}
+
+std::size_t BlockDeviceList::countMmc() const noexcept {
+  std::size_t n = 0;
+  for (std::size_t i = 0; i < count; ++i) {
+    if (devices[i].isMmc()) {
       ++n;
     }
   }

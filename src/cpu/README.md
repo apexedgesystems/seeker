@@ -239,7 +239,10 @@ if (setCurrentThreadAffinity(pinned) == AffinityStatus::OK) {
 ### CpuFeatures
 
 **Header:** `CpuFeatures.hpp`
-**Purpose:** Detect ISA extensions via CPUID (x86/x86_64).
+**Purpose:** Detect ISA extensions and CPU identity. x86/x86_64 via CPUID; aarch64 via
+`getauxval(AT_HWCAP/AT_HWCAP2)` (falling back to `/proc/cpuinfo` "Features") with vendor/brand
+from the MIDR implementer and part number(s) in `/proc/cpuinfo`. Fields for the other
+architecture stay `false`; use `isX86()` / `isArm()` to decide which ones apply.
 
 #### Key Types
 
@@ -250,7 +253,15 @@ inline constexpr std::size_t VENDOR_STRING_SIZE = 13;
 /// Maximum brand string length (48 chars from CPUID + null).
 inline constexpr std::size_t BRAND_STRING_SIZE = 49;
 
+/// Maximum distinct aarch64 core types tracked (heterogeneous core clusters).
+inline constexpr std::size_t ARM_MAX_CORE_TYPES = 4;
+
+enum class CpuArch : std::uint8_t { UNKNOWN = 0, X86, AARCH64 };
+[[nodiscard]] const char* toString(CpuArch arch) noexcept;  // "x86", "aarch64", "unknown"
+
 struct CpuFeatures {
+  CpuArch arch{CpuArch::UNKNOWN};  // Set by getCpuFeatures()
+
   // SIMD: SSE family
   bool sse{false};
   bool sse2{false};
@@ -273,29 +284,65 @@ struct CpuFeatures {
   bool bmi1{false};
   bool bmi2{false};
 
-  // Cryptography
-  bool aes{false};
-  bool sha{false};
+  // Cryptography (shared: set on both x86 and aarch64)
+  bool aes{false};          // x86 AES-NI; aarch64 AES
+  bool sha{false};          // x86 SHA extensions; aarch64 SHA1 && SHA2
 
   // Misc
   bool popcnt{false};
   bool rdrand{false};       // RDRAND instruction available
   bool rdseed{false};       // RDSEED instruction available
-  bool invariantTsc{false}; // Invariant TSC (reliable for timing)
+  bool invariantTsc{false}; // Invariant TSC (reliable for timing); x86 only
+
+  // aarch64: SIMD
+  bool neon{false};         // Advanced SIMD (asimd)
+  bool sve{false};
+  bool sve2{false};
+  bool dotprod{false};      // asimddp
+  bool i8mm{false};
+  bool bf16{false};
+
+  // aarch64: Cryptography and CRC
+  bool pmull{false};
+  bool sha1{false};
+  bool sha2{false};
+  bool sha3{false};
+  bool sha512{false};
+  bool crc32{false};
+
+  // aarch64: Misc
+  bool atomics{false};      // LSE atomic instructions
+
+  // aarch64: MIDR identification (first CPU; 0 when unavailable)
+  std::uint16_t armImplementer{0};                          // e.g., 0x41 = ARM
+  std::uint16_t armPart{0};                                 // e.g., 0xd08
+  std::array<std::uint16_t, ARM_MAX_CORE_TYPES> armParts{}; // Distinct parts, in order seen
+  std::uint8_t armPartCount{0};
 
   // Identification (fixed-size, RT-safe)
-  std::array<char, VENDOR_STRING_SIZE> vendor{}; // e.g., "GenuineIntel", "AuthenticAMD"
-  std::array<char, BRAND_STRING_SIZE> brand{};   // Full model string if available
+  std::array<char, VENDOR_STRING_SIZE> vendor{}; // e.g., "GenuineIntel", "AuthenticAMD", "ARM"
+  std::array<char, BRAND_STRING_SIZE> brand{};   // CPUID brand; aarch64: "<vendor> <core>[ + <core>...]"
 
+  [[nodiscard]] constexpr bool isX86() const noexcept;
+  [[nodiscard]] constexpr bool isArm() const noexcept;
   [[nodiscard]] std::string toString() const;  // NOT RT-safe
 };
 ```
 
+On aarch64, unknown part numbers are reported as `"<vendor> part 0x..."`. Core names follow
+util-linux `lscpu` spelling (cross-checked against the kernel's `asm/cputype.h`).
+
 #### API
 
 ```cpp
-/// Query CPU features via CPUID (RT-safe: no I/O, just CPUID instructions)
+/// Query CPU features.
+/// x86: RT-safe (no I/O, just CPUID instructions).
+/// aarch64: no heap allocation, but reads /proc/cpuinfo -- query at startup.
 [[nodiscard]] CpuFeatures getCpuFeatures() noexcept;
+
+/// MIDR lookups (RT-safe, available on all architectures). nullptr if unknown.
+[[nodiscard]] const char* armImplementerName(std::uint16_t implementer) noexcept;
+[[nodiscard]] const char* armPartName(std::uint16_t implementer, std::uint16_t part) noexcept;
 ```
 
 #### Usage
@@ -311,8 +358,12 @@ if (feat.avx2) {
   // Fall back to SSE4.2 path
 }
 
-if (!feat.invariantTsc) {
+if (feat.isX86() && !feat.invariantTsc) {
   // Warning: TSC may not be reliable for timing on this CPU
+}
+
+if (feat.isArm() && feat.sve2) {
+  // Use SVE2 code path; NEON is always present on ARMv8-A Linux
 }
 ```
 
@@ -1227,7 +1278,8 @@ These can be called from RT threads:
 - `getCurrentThreadAffinity()`
 - `setCurrentThreadAffinity()`
 - `getConfiguredCpuCount()`
-- `getCpuFeatures()`
+- `getCpuFeatures()` (x86 only; on aarch64 it reads `/proc/cpuinfo`)
+- `armImplementerName()`, `armPartName()`
 - `getCpuIsolationConfig()`
 - `validateIsolation()`
 - `parseCpuList()`

@@ -5,21 +5,42 @@
  * Notes:
  *  - Tests verify structural invariants, not specific hardware values.
  *  - All tests should pass on any Linux system with sysfs mounted.
+ *  - Core grouping is checked against the kernel's own sibling lists.
  */
 
 #include "src/cpu/inc/CpuTopology.hpp"
+#include "src/cpu/inc/Affinity.hpp"
+#include "src/cpu/inc/CpuIsolation.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cstddef> // std::size_t
 #include <cstring> // std::strlen
+#include <fstream>
 #include <set>
 #include <string>
 
 using seeker::cpu::CACHE_STRING_SIZE;
 using seeker::cpu::CacheInfo;
 using seeker::cpu::CoreInfo;
+using seeker::cpu::CpuSet;
 using seeker::cpu::CpuTopology;
 using seeker::cpu::getCpuTopology;
+using seeker::cpu::parseCpuList;
+
+namespace {
+
+/// Read the first line of a sysfs file; empty if missing.
+std::string readFirstLine(const std::string& path) {
+  std::ifstream file(path);
+  std::string line;
+  if (file) {
+    std::getline(file, line);
+  }
+  return line;
+}
+
+} // namespace
 
 class CpuTopologyTest : public ::testing::Test {
 protected:
@@ -102,6 +123,31 @@ TEST_F(CpuTopologyTest, ThreadIdsNonNegative) {
     for (int cpuId : CORE.threadCpuIds) {
       EXPECT_GE(cpuId, 0);
     }
+  }
+}
+
+/** @test Each core's threads are exactly the CPUs the kernel lists as sharing that core. */
+TEST_F(CpuTopologyTest, CoreThreadsMatchKernelSiblings) {
+  for (const CoreInfo& CORE : topo_.cores) {
+    ASSERT_FALSE(CORE.threadCpuIds.empty());
+    const int FIRST = CORE.threadCpuIds.front();
+    const std::string TOPO_DIR =
+        "/sys/devices/system/cpu/cpu" + std::to_string(FIRST) + "/topology/";
+    std::string siblings = readFirstLine(TOPO_DIR + "core_cpus_list");
+    if (siblings.empty()) {
+      siblings = readFirstLine(TOPO_DIR + "thread_siblings_list");
+    }
+    if (siblings.empty()) {
+      GTEST_SKIP() << "No sibling list in sysfs for cpu" << FIRST;
+    }
+
+    CpuSet threads{};
+    for (const int CPU : CORE.threadCpuIds) {
+      threads.set(static_cast<std::size_t>(CPU));
+    }
+    const CpuSet KERNEL = parseCpuList(siblings.c_str());
+    EXPECT_EQ(threads.toString(), KERNEL.toString())
+        << "core of cpu" << FIRST << ", kernel sibling list \"" << siblings << "\"";
   }
 }
 

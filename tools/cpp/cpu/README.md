@@ -37,7 +37,7 @@ cpu-info --json
 **Output includes:**
 
 - CPU topology (sockets, cores, threads, NUMA nodes)
-- ISA features (AVX, AVX2, AVX-512, invariant TSC)
+- Vendor, brand and ISA features: x86 SIMD up to AVX-512, crypto and invariant TSC; aarch64 MIDR implementer and part, NEON, SVE/SVE2, dot product, I8MM, BF16, crypto, CRC32 and LSE atomics
 - Frequency and governor state per core
 - System stats (kernel, RAM, load, uptime)
 - CPU isolation configuration
@@ -64,9 +64,9 @@ cpu-rtcheck --json
 1. CPU Isolation (isolcpus + nohz_full + rcu_nocbs)
 2. CPU Governor ("performance" required)
 3. C-State Latency (<=10us threshold)
-4. IRQ Affinity (no device IRQs on RT cores)
+4. IRQ Affinity (no device IRQs on RT cores during a ~100 ms sample; only numbered IRQs count, and the ARM arch_timer is skipped)
 5. Softirq Load (<1000/s warn, <10000/s fail)
-6. Invariant TSC (required for reliable timing)
+6. Invariant TSC (required for reliable timing on x86; SKIP on other architectures)
 
 **Exit codes:** 0=pass, 1=warnings, 2=failures
 

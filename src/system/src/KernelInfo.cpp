@@ -65,6 +65,45 @@ PreemptModel detectPreemptFromVersion(const char* version) noexcept {
   return PreemptModel::NONE;
 }
 
+/// Map a preemption mode word ("none", "voluntary", "full", "lazy") to a model.
+PreemptModel preemptFromModeWord(const char* word) noexcept {
+  if (std::strncmp(word, "none", 4) == 0) {
+    return PreemptModel::NONE;
+  }
+  if (std::strncmp(word, "voluntary", 9) == 0) {
+    return PreemptModel::VOLUNTARY;
+  }
+  if (std::strncmp(word, "full", 4) == 0 || std::strncmp(word, "lazy", 4) == 0) {
+    return PreemptModel::PREEMPT;
+  }
+  return PreemptModel::UNKNOWN;
+}
+
+/// Resolve the active mode of a PREEMPT_DYNAMIC kernel.
+/// debugfs lists all modes with the active one in parentheses, e.g.
+/// "none (voluntary) full" (readable by root only). Falls back to a preempt=
+/// boot parameter. Returns UNKNOWN when neither source is available.
+PreemptModel detectDynamicPreempt(char* buf, std::size_t bufSize) noexcept {
+  if (readFileToBuffer("/sys/kernel/debug/sched/preempt", buf, bufSize) > 0) {
+    const char* active = std::strchr(buf, '(');
+    if (active != nullptr) {
+      return preemptFromModeWord(active + 1);
+    }
+  }
+
+  if (readFileToBuffer("/proc/cmdline", buf, bufSize) > 0) {
+    const char* pos = buf;
+    while ((pos = std::strstr(pos, "preempt=")) != nullptr) {
+      if (pos == buf || pos[-1] == ' ') {
+        return preemptFromModeWord(pos + 8);
+      }
+      ++pos;
+    }
+  }
+
+  return PreemptModel::UNKNOWN;
+}
+
 /// Copy string safely with null termination.
 template <std::size_t N> void safeCopy(std::array<char, N>& dest, const char* src) noexcept {
   if (src == nullptr) {
@@ -203,6 +242,15 @@ KernelInfo getKernelInfo() noexcept {
 
     // Check for RT-PREEMPT specifically
     info.rtPreemptPatched = (std::strstr(info.version.data(), "PREEMPT_RT") != nullptr);
+
+    // PREEMPT_DYNAMIC only says the model is chosen at boot, and distros often
+    // default to voluntary. Resolve the active mode instead of assuming full.
+    if (!info.rtPreemptPatched && std::strstr(info.version.data(), "PREEMPT_DYNAMIC") != nullptr) {
+      info.preemptDynamic = true;
+      info.preempt = detectDynamicPreempt(cmdlineBuf.data(), cmdlineBuf.size());
+      safeCopy(info.preemptStr, info.preempt == PreemptModel::UNKNOWN ? "dynamic (mode unknown)"
+                                                                      : toString(info.preempt));
+    }
   }
 
   // Check /sys/kernel/realtime for explicit RT indicator (present in some RT kernels)

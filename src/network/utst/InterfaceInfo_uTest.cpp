@@ -12,7 +12,10 @@
 
 #include <gtest/gtest.h>
 
+#include <net/if_arp.h> // ARPHRD_* link-layer types
+
 #include <cstring>
+#include <fstream>
 #include <string>
 
 using seeker::network::formatSpeed;
@@ -23,6 +26,7 @@ using seeker::network::IF_NAME_SIZE;
 using seeker::network::IF_STRING_SIZE;
 using seeker::network::InterfaceInfo;
 using seeker::network::InterfaceList;
+using seeker::network::isNicLinkType;
 using seeker::network::MAC_STRING_SIZE;
 using seeker::network::MAX_INTERFACES;
 
@@ -133,6 +137,20 @@ TEST(InterfaceListTest, PhysicalInterfacesArePhysical) {
   }
 }
 
+/** @test Interfaces whose link type is neither Ethernet nor InfiniBand (e.g., CAN) are not NICs. */
+TEST(InterfaceListTest, NonNicLinkTypesNotPhysical) {
+  const InterfaceList LIST = getAllInterfaces();
+  for (std::size_t i = 0; i < LIST.count; ++i) {
+    const InterfaceInfo& IFACE = LIST.interfaces[i];
+    std::ifstream typeFile(std::string("/sys/class/net/") + IFACE.ifname.data() + "/type");
+    int linkType = -1;
+    if (!(typeFile >> linkType) || linkType == ARPHRD_ETHER || linkType == ARPHRD_INFINIBAND) {
+      continue;
+    }
+    EXPECT_FALSE(IFACE.isPhysical()) << IFACE.ifname.data() << " has link type " << linkType;
+  }
+}
+
 /* ----------------------------- InterfaceInfo Helper Methods ----------------------------- */
 
 /** @test isUp returns correct value for known states. */
@@ -149,8 +167,8 @@ TEST(InterfaceInfoMethodsTest, IsUpCorrect) {
   EXPECT_FALSE(info.isUp());
 }
 
-/** @test hasLink requires both up state and speed. */
-TEST(InterfaceInfoMethodsTest, HasLinkRequiresBoth) {
+/** @test hasLink follows operational state; speed is optional (Wi-Fi reports none). */
+TEST(InterfaceInfoMethodsTest, HasLinkFollowsOperState) {
   InterfaceInfo info{};
 
   // Neither up nor speed
@@ -158,10 +176,10 @@ TEST(InterfaceInfoMethodsTest, HasLinkRequiresBoth) {
   info.speedMbps = 0;
   EXPECT_FALSE(info.hasLink());
 
-  // Up but no speed
+  // Up but no speed (e.g., Wi-Fi)
   std::strcpy(info.operState.data(), "up");
   info.speedMbps = 0;
-  EXPECT_FALSE(info.hasLink());
+  EXPECT_TRUE(info.hasLink());
 
   // Speed but not up
   std::strcpy(info.operState.data(), "down");
@@ -261,6 +279,23 @@ TEST(InterfaceListToStringTest, EmptyListHandled) {
 
   EXPECT_FALSE(OUTPUT.empty());
   EXPECT_NE(OUTPUT.find("No interfaces"), std::string::npos);
+}
+
+/* ----------------------------- isNicLinkType Tests ----------------------------- */
+
+/** @test Ethernet-framed and InfiniBand link types are NICs; CAN, raw IP and others are not. */
+TEST(IsNicLinkTypeTest, EthernetAndInfinibandOnly) {
+  // Linux ABI values of the link types named below
+  static_assert(ARPHRD_ETHER == 1 && ARPHRD_INFINIBAND == 32);
+  static_assert(ARPHRD_CAN == 280 && ARPHRD_RAWIP == 519);
+
+  EXPECT_TRUE(isNicLinkType(ARPHRD_ETHER));
+  EXPECT_TRUE(isNicLinkType(ARPHRD_INFINIBAND));
+
+  EXPECT_FALSE(isNicLinkType(ARPHRD_CAN));
+  EXPECT_FALSE(isNicLinkType(ARPHRD_RAWIP));
+  EXPECT_FALSE(isNicLinkType(ARPHRD_LOOPBACK));
+  EXPECT_FALSE(isNicLinkType(ARPHRD_NONE)); // e.g., TUN devices
 }
 
 /* ----------------------------- formatSpeed Tests ----------------------------- */

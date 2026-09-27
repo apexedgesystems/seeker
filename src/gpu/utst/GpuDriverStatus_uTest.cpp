@@ -152,6 +152,33 @@ TEST(GpuDriverApiTest, SystemInfoReturnsGlobal) {
   EXPECT_EQ(info.deviceIndex, -1);
 }
 
+/** @test When the driver version is known (NVML), the CUDA driver version is too. */
+TEST(GpuDriverApiTest, CudaDriverVersionWithDriver) {
+  const GpuDriverStatus INFO = getSystemGpuDriverInfo();
+  if (INFO.driverVersion.empty()) {
+    GTEST_SKIP() << "NVIDIA driver not available";
+  }
+  // Encoded as 1000 * major + 10 * minor; drivers with this query report CUDA 10.0 or later
+  EXPECT_GE(INFO.cudaDriverVersion, 10000);
+  EXPECT_LT(INFO.cudaDriverVersion, 100000);
+  EXPECT_EQ(INFO.cudaDriverVersion % 10, 0) << INFO.cudaDriverVersion;
+  EXPECT_NE(GpuDriverStatus::formatCudaVersion(INFO.cudaDriverVersion), "unknown");
+}
+
+/** @test Per-device CUDA driver version matches system-wide value. */
+TEST(GpuDriverApiTest, PerDeviceCudaDriverVersionMatchesSystem) {
+  const std::vector<GpuDriverStatus> ALL = getAllGpuDriverStatus();
+  if (ALL.empty()) {
+    GTEST_SKIP() << "No NVML devices";
+  }
+  const GpuDriverStatus SYS = getSystemGpuDriverInfo();
+  for (const auto& S : ALL) {
+    EXPECT_EQ(S.cudaDriverVersion, SYS.cudaDriverVersion);
+    EXPECT_EQ(S.driverVersion, SYS.driverVersion);
+    EXPECT_FALSE(S.name.empty());
+  }
+}
+
 /** @test getGpuDriverStatus is deterministic for invalid index. */
 TEST(GpuDriverApiTest, DeterministicInvalid) {
   GpuDriverStatus s1 = getGpuDriverStatus(-1);

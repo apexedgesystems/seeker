@@ -194,10 +194,11 @@ struct BlockDevice {
 
   // Type helpers
   [[nodiscard]] bool isNvme() const noexcept;
-  [[nodiscard]] bool isSsd() const noexcept;
+  [[nodiscard]] bool isMmc() const noexcept;              // SD card or eMMC (name starts with "mmcblk")
+  [[nodiscard]] bool isSsd() const noexcept;              // non-rotational, non-removable, not SD/eMMC
   [[nodiscard]] bool isHdd() const noexcept;
   [[nodiscard]] bool isAdvancedFormat() const noexcept;   // 4K physical sectors
-  [[nodiscard]] const char* deviceType() const noexcept;  // "NVMe", "SSD", "HDD", "Unknown"
+  [[nodiscard]] const char* deviceType() const noexcept;  // "NVMe", "SD/eMMC", "HDD", "SSD", "Removable", "Unknown"
   [[nodiscard]] std::string toString() const;             // NOT RT-safe: allocates
 };
 
@@ -207,8 +208,9 @@ struct BlockDeviceList {
 
   [[nodiscard]] const BlockDevice* find(const char* name) const noexcept;
   [[nodiscard]] std::size_t countNvme() const noexcept;
-  [[nodiscard]] std::size_t countSsd() const noexcept;
+  [[nodiscard]] std::size_t countSsd() const noexcept;   // excludes NVMe and SD/eMMC
   [[nodiscard]] std::size_t countHdd() const noexcept;
+  [[nodiscard]] std::size_t countMmc() const noexcept;
   [[nodiscard]] std::string toString() const;  // NOT RT-safe: allocates
 };
 ```

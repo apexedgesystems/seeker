@@ -55,17 +55,21 @@ void printDeviceStatus(const gpu::GpuTelemetry& telem, const gpu::GpuMemoryStatu
                        const gpu::GpuIsolation& iso, bool showProcs) {
   fmt::print("=== GPU {} ===\n", telem.deviceIndex);
 
-  // Temperature and power
-  fmt::print("  Temperature: {} C", telem.temperatureC);
-  if (telem.temperatureSlowdownC > 0) {
-    fmt::print(" (slowdown: {} C)", telem.temperatureSlowdownC);
+  // Temperature and power (integrated GPUs may not expose a GPU sensor via NVML)
+  if (telem.temperatureC > 0) {
+    fmt::print("  Temperature: {} C", telem.temperatureC);
+    if (telem.temperatureSlowdownC > 0) {
+      fmt::print(" (slowdown: {} C)", telem.temperatureSlowdownC);
+    }
+    fmt::print("\n");
+  } else {
+    fmt::print("  Temperature: not reported\n");
   }
-  fmt::print("\n");
 
   if (telem.powerMilliwatts > 0) {
     fmt::print("  Power:       {:.1f} W", telem.powerMilliwatts / 1000.0);
     if (telem.powerLimitMilliwatts > 0) {
-      fmt::print(" / {:.0f} W ({:.0f}%%)", telem.powerLimitMilliwatts / 1000.0,
+      fmt::print(" / {:.0f} W ({:.0f}%)", telem.powerLimitMilliwatts / 1000.0,
                  100.0 * static_cast<double>(telem.powerMilliwatts) /
                      static_cast<double>(telem.powerLimitMilliwatts));
     }
@@ -81,7 +85,7 @@ void printDeviceStatus(const gpu::GpuTelemetry& telem, const gpu::GpuMemoryStatu
 
   // Fan
   if (telem.fanSpeedPercent >= 0) {
-    fmt::print("  Fan:         {}%%\n", telem.fanSpeedPercent);
+    fmt::print("  Fan:         {}%\n", telem.fanSpeedPercent);
   }
 
   // Throttling
@@ -89,9 +93,13 @@ void printDeviceStatus(const gpu::GpuTelemetry& telem, const gpu::GpuMemoryStatu
     fmt::print("  \033[33mThrottling:  {}\033[0m\n", telem.throttleReasons.toString());
   }
 
-  // Memory
-  fmt::print("  Memory:      {} / {} ({:.1f}%% used)\n", bytesBinary(mem.usedBytes),
-             bytesBinary(mem.totalBytes), mem.utilizationPercent());
+  // Memory (no total when the memory status has no data for this device)
+  if (mem.totalBytes > 0) {
+    fmt::print("  Memory:      {} / {} ({:.1f}% used)\n", bytesBinary(mem.usedBytes),
+               bytesBinary(mem.totalBytes), mem.utilizationPercent());
+  } else {
+    fmt::print("  Memory:      not reported\n");
+  }
 
   // ECC status
   if (mem.eccEnabled) {

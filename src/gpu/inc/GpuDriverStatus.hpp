@@ -43,8 +43,8 @@ struct GpuDriverStatus {
 
   // Driver versions
   std::string driverVersion; ///< NVIDIA driver version (e.g., "535.104.05")
-  int cudaDriverVersion{0};  ///< CUDA driver version (e.g., 12040 = 12.4)
-  int cudaRuntimeVersion{0}; ///< CUDA runtime version
+  int cudaDriverVersion{0};  ///< Max CUDA version supported by driver (e.g., 12040 = 12.4)
+  int cudaRuntimeVersion{0}; ///< CUDA runtime version (0 unless built with CUDA compiler)
   std::string nvmlVersion;   ///< NVML library version
 
   // Configuration

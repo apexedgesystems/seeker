@@ -3,7 +3,9 @@
 /**
  * @file GpuTopology.hpp
  * @brief GPU topology snapshot: device enumeration, SM architecture, capabilities.
- * @note Linux-only. Primary support via CUDA runtime; fallback to sysfs for non-NVIDIA.
+ * @note Linux-only. NVIDIA GPUs via the CUDA runtime when compiled as CUDA, else
+ *       NVML; other PCI display controllers (class 0x03) via sysfs. Platform and
+ *       virtual DRM devices (e.g., evdi, vc4, host1x) are not reported.
  * @note Thread-safe: All functions are stateless and safe to call concurrently.
  */
 
@@ -134,6 +136,9 @@ struct GpuTopology {
 /**
  * @brief Query all GPU devices on the system.
  * @return Populated topology; empty if no GPUs found.
+ * @note NVIDIA devices (NVML ordinals) come first, followed by other PCI display
+ *       controllers ordered by DRM card number. BDFs use sysfs form ("0000:01:00.0").
+ * @note Fields the active backend cannot provide (e.g., SM count via NVML) stay zeroed.
  * @note NOT RT-safe: Allocates vectors, performs I/O.
  */
 [[nodiscard]] GpuTopology getGpuTopology() noexcept;

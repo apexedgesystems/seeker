@@ -69,18 +69,18 @@ $ timing-rtcheck --json
 
 **Checks performed:**
 
-| Check           | PASS            | WARN            | FAIL             |
-| --------------- | --------------- | --------------- | ---------------- |
-| Clocksource     | TSC             | HPET, acpi_pm   | Unknown/unstable |
-| High-Res Timers | Enabled (<=1us) | -               | Disabled (>1ms)  |
-| Timer Slack     | Minimal (1ns)   | Default (~50us) | -                |
-| NO_HZ Full      | Configured      | Not configured  | -                |
-| PREEMPT_RT      | Yes             | No              | -                |
-| RTC Drift\*     | <=5 sec         | >5 sec, no RTC  | -                |
+| Check           | PASS                        | WARN                 | FAIL            |
+| --------------- | --------------------------- | -------------------- | --------------- |
+| Clocksource     | TSC, arch_sys_counter (ARM) | HPET, acpi_pm, other | -               |
+| High-Res Timers | Enabled (<=1us)             | -                    | Disabled (>1ms) |
+| Timer Slack     | Minimal (1ns)               | Default (~50us)      | -               |
+| NO_HZ Full      | Configured                  | Not configured       | -               |
+| PREEMPT_RT      | Yes                         | No                   | -               |
+| RTC Drift\*     | <=5 sec                     | >5 sec, no RTC       | -               |
 
 \*Only with `--rtc` flag
 
-**Exit codes:** 0=all pass, 1=any failures
+**Exit codes:** 0=pass, 1=warnings, 2=failures
 
 ---
 

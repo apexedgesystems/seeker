@@ -1,19 +1,25 @@
 /**
  * @file GpuTopology.cpp
- * @brief GPU topology collection via CUDA runtime and sysfs.
- * @note Primary support for NVIDIA via CUDA; fallback to sysfs for AMD/Intel.
+ * @brief GPU topology collection via CUDA runtime, NVML, and sysfs.
+ * @note NVIDIA GPUs via the CUDA runtime when compiled as CUDA, else NVML; sysfs
+ *       PCI display controllers for everything else.
  */
 
 #include "src/gpu/inc/GpuTopology.hpp"
 
-#include <array>      // std::array
-#include <cstdlib>    // std::getenv
-#include <filesystem> // std::filesystem
-#include <fstream>    // std::ifstream
+#include <algorithm>   // std::any_of, std::sort
+#include <array>       // std::array
+#include <cstdio>      // std::sscanf, std::snprintf
+#include <cstdlib>     // std::strtoul
+#include <filesystem>  // std::filesystem
+#include <fstream>     // std::ifstream
+#include <string_view> // std::string_view
+#include <utility>     // std::pair
 
 #include <fmt/core.h>
 
 #include "src/gpu/inc/compat_cuda_detect.hpp"
+#include "src/gpu/inc/compat_nvml_detect.hpp"
 #if COMPAT_CUDA_AVAILABLE
 #include <cuda_runtime.h>
 #endif
@@ -31,8 +37,8 @@ namespace {
 /// Sysfs path for DRM (Direct Rendering Manager) devices.
 constexpr const char* DRM_PATH = "/sys/class/drm";
 
-/// Sysfs path for PCI devices.
-constexpr const char* PCI_PATH = "/sys/bus/pci/devices";
+/// PCI base class for display controllers (VGA, XGA, 3D, other).
+constexpr unsigned long PCI_CLASS_DISPLAY = 0x03;
 
 /* ----------------------------- File Helpers ----------------------------- */
 
@@ -161,6 +167,107 @@ inline GpuDevice queryCudaDevice(int deviceIndex) noexcept {
 
 #endif // COMPAT_CUDA_AVAILABLE
 
+/* ----------------------------- PCI Helpers ----------------------------- */
+
+/**
+ * @brief Normalize a PCI bus ID to sysfs form ("0000:01:00.0", lowercase).
+ * @param busId Bus ID in any of "00000000:01:00.0", "0000:01:00.0", "01:00.0".
+ * @param dev Device to receive BDF string and numeric components.
+ * @return True if the bus ID parsed.
+ */
+inline bool setPciAddress(const char* busId, GpuDevice& dev) noexcept {
+  unsigned int domain = 0;
+  unsigned int bus = 0;
+  unsigned int device = 0;
+  unsigned int function = 0;
+  if (std::sscanf(busId, "%x:%x:%x.%x", &domain, &bus, &device, &function) != 4) {
+    domain = 0;
+    if (std::sscanf(busId, "%x:%x.%x", &bus, &device, &function) != 3) {
+      return false;
+    }
+  }
+
+  dev.pciDomain = static_cast<int>(domain);
+  dev.pciBus = static_cast<int>(bus);
+  dev.pciDevice = static_cast<int>(device);
+  dev.pciFunction = static_cast<int>(function);
+
+  std::array<char, 32> bdf{};
+  std::snprintf(bdf.data(), bdf.size(), "%04x:%02x:%02x.%x", domain & 0xFFFFU, bus & 0xFFU,
+                device & 0x1FU, function & 0x7U);
+  dev.pciBdf = bdf.data();
+  return true;
+}
+
+/* ----------------------------- NVML Helpers ----------------------------- */
+
+#if COMPAT_NVML_AVAILABLE
+
+/// RAII wrapper for NVML initialization.
+class NvmlSession {
+public:
+  NvmlSession() noexcept : initialized_(nvmlInit_v2() == NVML_SUCCESS) {}
+  ~NvmlSession() {
+    if (initialized_)
+      nvmlShutdown();
+  }
+
+  [[nodiscard]] bool valid() const noexcept { return initialized_; }
+
+  NvmlSession(const NvmlSession&) = delete;
+  NvmlSession& operator=(const NvmlSession&) = delete;
+
+private:
+  bool initialized_;
+};
+
+/// Query single NVIDIA device via NVML. Fields NVML cannot provide stay zeroed.
+inline GpuDevice queryNvmlDevice(nvmlDevice_t device, int deviceIndex) noexcept {
+  GpuDevice dev{};
+  dev.deviceIndex = deviceIndex;
+  dev.vendor = GpuVendor::Nvidia;
+
+  // Device name
+  std::array<char, NVML_DEVICE_NAME_BUFFER_SIZE> name{};
+  if (nvmlDeviceGetName(device, name.data(), static_cast<unsigned int>(name.size())) ==
+      NVML_SUCCESS) {
+    dev.name = name.data();
+  }
+
+  // UUID
+  std::array<char, 96> uuid{};
+  if (nvmlDeviceGetUUID(device, uuid.data(), static_cast<unsigned int>(uuid.size())) ==
+      NVML_SUCCESS) {
+    dev.uuid = uuid.data();
+  }
+
+  // Compute capability
+  int major = 0;
+  int minor = 0;
+  if (nvmlDeviceGetCudaComputeCapability(device, &major, &minor) == NVML_SUCCESS) {
+    dev.smMajor = major;
+    dev.smMinor = minor;
+  }
+
+  // Total memory (integrated GPUs may report NOT_SUPPORTED)
+  nvmlMemory_t mem{};
+  if (nvmlDeviceGetMemoryInfo(device, &mem) == NVML_SUCCESS) {
+    dev.totalMemoryBytes = mem.total;
+  }
+
+  // PCI address
+  nvmlPciInfo_t pci{};
+  if (nvmlDeviceGetPciInfo_v3(device, &pci) == NVML_SUCCESS) {
+    if (!setPciAddress(pci.busId, dev)) {
+      (void)setPciAddress(pci.busIdLegacy, dev);
+    }
+  }
+
+  return dev;
+}
+
+#endif // COMPAT_NVML_AVAILABLE
+
 /* ----------------------------- Sysfs Helpers ----------------------------- */
 
 /// Detect GPU vendor from PCI vendor ID.
@@ -177,34 +284,76 @@ inline GpuVendor detectVendor(const std::string& vendorId) noexcept {
   return GpuVendor::Unknown;
 }
 
-/// Query GPU via sysfs (for non-NVIDIA or fallback).
-inline GpuDevice querySysfsDevice(const fs::path& drmPath, int index) noexcept {
+/// Strip "0x" prefix from a sysfs hex ID ("0x10de" -> "10de").
+inline std::string stripHexPrefix(const std::string& id) noexcept {
+  if (id.size() > 2 && id[0] == '0' && (id[1] == 'x' || id[1] == 'X')) {
+    return id.substr(2);
+  }
+  return id;
+}
+
+/**
+ * @brief Resolve a DRM card to its PCI device directory.
+ * @param drmPath DRM card path (e.g., /sys/class/drm/card0).
+ * @return Canonical PCI device path; empty if the card is not a PCI display
+ *         controller (platform/virtual devices such as evdi, vc4, host1x).
+ */
+inline fs::path resolvePciDisplayDevice(const fs::path& drmPath) noexcept {
+  std::error_code ec;
+  const fs::path DEVICE = fs::canonical(drmPath / "device", ec);
+  if (ec) {
+    return {};
+  }
+
+  const fs::path SUBSYSTEM = fs::canonical(DEVICE / "subsystem", ec);
+  if (ec || SUBSYSTEM.filename() != "pci") {
+    return {};
+  }
+
+  const std::string CLASS = readLine(DEVICE / "class");
+  if (CLASS.empty()) {
+    return {};
+  }
+  const unsigned long CLASS_CODE = std::strtoul(CLASS.c_str(), nullptr, 16);
+  if ((CLASS_CODE >> 16) != PCI_CLASS_DISPLAY) {
+    return {};
+  }
+
+  return DEVICE;
+}
+
+/// Read kernel driver name from a sysfs device uevent ("DRIVER=i915" -> "i915").
+inline std::string readDriverName(const fs::path& devicePath) noexcept {
+  std::ifstream file(devicePath / "uevent");
+  if (!file) {
+    return {};
+  }
+  constexpr std::string_view PREFIX = "DRIVER=";
+  std::string line;
+  while (std::getline(file, line)) {
+    if (line.compare(0, PREFIX.size(), PREFIX) == 0) {
+      return line.substr(PREFIX.size());
+    }
+  }
+  return {};
+}
+
+/// Query GPU via sysfs PCI device directory (for non-NVIDIA or fallback).
+inline GpuDevice querySysfsDevice(const fs::path& pciDevice, int index) noexcept {
   GpuDevice dev{};
   dev.deviceIndex = index;
 
-  // Read device symlink to get PCI path
-  std::error_code ec;
-  const fs::path DEVICE_LINK = drmPath / "device";
-  if (!fs::is_symlink(DEVICE_LINK, ec)) {
-    return dev;
+  // BDF from canonical PCI path
+  if (!setPciAddress(pciDevice.filename().c_str(), dev)) {
+    dev.pciBdf = pciDevice.filename().string();
   }
 
-  const fs::path PCI_PATH_RESOLVED = fs::read_symlink(DEVICE_LINK, ec);
-  if (ec) {
-    return dev;
-  }
-
-  // Extract BDF from path
-  const std::string BDF = PCI_PATH_RESOLVED.filename().string();
-  dev.pciBdf = BDF;
-
-  // Read vendor
-  const fs::path PCI_DEV = fs::path(PCI_PATH) / BDF;
-  const std::string VENDOR = readLine(PCI_DEV / "vendor");
+  // Vendor
+  const std::string VENDOR = readLine(pciDevice / "vendor");
   dev.vendor = detectVendor(VENDOR);
 
-  // Read memory (if available)
-  const fs::path MEM_INFO = drmPath / "device" / "mem_info_vram_total";
+  // Memory (amdgpu exposes VRAM size)
+  const fs::path MEM_INFO = pciDevice / "mem_info_vram_total";
   if (pathExists(MEM_INFO)) {
     std::ifstream file(MEM_INFO);
     if (file) {
@@ -212,13 +361,94 @@ inline GpuDevice querySysfsDevice(const fs::path& drmPath, int index) noexcept {
     }
   }
 
-  // Try to get device name
-  const fs::path PRODUCT = PCI_DEV / "label";
-  if (pathExists(PRODUCT)) {
-    dev.name = readLine(PRODUCT);
+  // Name: firmware label if present, else "<vendor> GPU [vvvv:dddd] (driver)"
+  const fs::path LABEL = pciDevice / "label";
+  if (pathExists(LABEL)) {
+    dev.name = readLine(LABEL);
+  }
+  if (dev.name.empty()) {
+    const std::string DEVICE_ID = stripHexPrefix(readLine(pciDevice / "device"));
+    const std::string DRIVER = readDriverName(pciDevice);
+    dev.name = fmt::format("{} GPU [{}:{}]", seeker::gpu::toString(dev.vendor),
+                           stripHexPrefix(VENDOR), DEVICE_ID);
+    if (!DRIVER.empty()) {
+      dev.name += fmt::format(" ({})", DRIVER);
+    }
   }
 
   return dev;
+}
+
+/// Extract numeric suffix of a DRM card name ("card12" -> 12); -1 if not a card.
+inline int drmCardNumber(const std::string& name) noexcept {
+  constexpr std::string_view PREFIX = "card";
+  if (name.size() <= PREFIX.size() || name.compare(0, PREFIX.size(), PREFIX) != 0) {
+    return -1;
+  }
+  int value = 0;
+  for (std::size_t i = PREFIX.size(); i < name.size(); ++i) {
+    // Rejects connectors such as "card0-HDMI-A-1"
+    if (name[i] < '0' || name[i] > '9') {
+      return -1;
+    }
+    value = value * 10 + (name[i] - '0');
+  }
+  return value;
+}
+
+/**
+ * @brief Append PCI display controllers from sysfs, skipping known BDFs.
+ * @param topo Topology to append to (deviceIndex continues from devices.size()).
+ * @note Devices are ordered by DRM card number for deterministic indices.
+ */
+inline void appendSysfsDevices(GpuTopology& topo) noexcept {
+  const fs::path DRM_DIR{DRM_PATH};
+  if (!pathExists(DRM_DIR)) {
+    return;
+  }
+
+  std::vector<std::pair<int, fs::path>> cards;
+  std::error_code ec;
+  for (const auto& entry : fs::directory_iterator(DRM_DIR, ec)) {
+    const int CARD = drmCardNumber(entry.path().filename().string());
+    if (CARD >= 0) {
+      cards.emplace_back(CARD, entry.path());
+    }
+  }
+  std::sort(cards.begin(), cards.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+
+  for (const auto& card : cards) {
+    const fs::path PCI_DEV = resolvePciDisplayDevice(card.second);
+    if (PCI_DEV.empty()) {
+      continue;
+    }
+
+    GpuDevice dev = querySysfsDevice(PCI_DEV, static_cast<int>(topo.devices.size()));
+
+    // Skip devices already enumerated (NVML) or multiple cards on one function
+    const bool DUPLICATE =
+        std::any_of(topo.devices.begin(), topo.devices.end(),
+                    [&dev](const GpuDevice& d) { return d.pciBdf == dev.pciBdf; });
+    if (DUPLICATE) {
+      continue;
+    }
+
+    switch (dev.vendor) {
+    case GpuVendor::Nvidia:
+      ++topo.nvidiaCount;
+      break;
+    case GpuVendor::Amd:
+      ++topo.amdCount;
+      break;
+    case GpuVendor::Intel:
+      ++topo.intelCount;
+      break;
+    default:
+      break;
+    }
+    topo.devices.push_back(std::move(dev));
+  }
 }
 
 } // namespace
@@ -269,24 +499,25 @@ GpuDevice getGpuDevice(int deviceIndex) noexcept {
   }
 #endif
 
-  // Fallback to sysfs
-  const fs::path DRM_DIR{DRM_PATH};
-  if (!pathExists(DRM_DIR)) {
-    GpuDevice dev{};
-    dev.deviceIndex = deviceIndex;
-    return dev;
+  if (deviceIndex < 0) {
+    return GpuDevice{};
   }
 
-  std::error_code ec;
-  int idx = 0;
-  for (const auto& entry : fs::directory_iterator(DRM_DIR, ec)) {
-    const std::string NAME = entry.path().filename().string();
-    if (NAME.find("card") == 0 && NAME.find('-') == std::string::npos) {
-      if (idx == deviceIndex) {
-        return querySysfsDevice(entry.path(), deviceIndex);
-      }
-      ++idx;
+#if COMPAT_NVML_AVAILABLE
+  {
+    NvmlSession session;
+    nvmlDevice_t device{};
+    if (session.valid() && nvmlDeviceGetHandleByIndex_v2(static_cast<unsigned int>(deviceIndex),
+                                                         &device) == NVML_SUCCESS) {
+      return queryNvmlDevice(device, deviceIndex);
     }
+  }
+#endif
+
+  // Sysfs devices are indexed after NVIDIA devices; enumerate to keep indices consistent
+  GpuTopology topo = getGpuTopology();
+  if (deviceIndex < topo.deviceCount) {
+    return std::move(topo.devices[static_cast<std::size_t>(deviceIndex)]);
   }
 
   GpuDevice dev{};
@@ -313,36 +544,27 @@ GpuTopology getGpuTopology() noexcept {
   }
 #endif
 
-  // Fallback: enumerate via sysfs
-  const fs::path DRM_DIR{DRM_PATH};
-  if (!pathExists(DRM_DIR)) {
-    return topo;
-  }
-
-  std::error_code ec;
-  int idx = 0;
-  for (const auto& entry : fs::directory_iterator(DRM_DIR, ec)) {
-    const std::string NAME = entry.path().filename().string();
-    // Match "card0", "card1", but not "card0-HDMI-A-1"
-    if (NAME.find("card") == 0 && NAME.find('-') == std::string::npos) {
-      GpuDevice dev = querySysfsDevice(entry.path(), idx);
-      switch (dev.vendor) {
-      case GpuVendor::Nvidia:
+#if COMPAT_NVML_AVAILABLE
+  {
+    // NVIDIA devices first so indices match NVML ordinals used by other modules
+    NvmlSession session;
+    unsigned int count = 0;
+    if (session.valid() && nvmlDeviceGetCount_v2(&count) == NVML_SUCCESS) {
+      topo.devices.reserve(count);
+      for (unsigned int i = 0; i < count; ++i) {
+        nvmlDevice_t device{};
+        if (nvmlDeviceGetHandleByIndex_v2(i, &device) != NVML_SUCCESS) {
+          continue;
+        }
+        topo.devices.push_back(queryNvmlDevice(device, static_cast<int>(topo.devices.size())));
         ++topo.nvidiaCount;
-        break;
-      case GpuVendor::Amd:
-        ++topo.amdCount;
-        break;
-      case GpuVendor::Intel:
-        ++topo.intelCount;
-        break;
-      default:
-        break;
       }
-      topo.devices.push_back(std::move(dev));
-      ++idx;
     }
   }
+#endif
+
+  // Remaining PCI display controllers (AMD/Intel, or NVIDIA when NVML is unavailable)
+  appendSysfsDevices(topo);
 
   topo.deviceCount = static_cast<int>(topo.devices.size());
   return topo;

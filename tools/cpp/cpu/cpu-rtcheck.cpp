@@ -235,18 +235,28 @@ CheckStatus checkCStates(const cpu::CpuIdleSnapshot& idle, const cpu::CpuSet& rt
         status.message += highLatencyStates[i];
       }
     }
+#if defined(__x86_64__) || defined(__i386__)
     status.recommendation = "Disable deep C-states: processor.max_cstate=1 intel_idle.max_cstate=0";
+#else
+    status.recommendation =
+        "Disable deep idle states: cpuidle.off=1, or write 1 to cpuidle/stateN/disable";
+#endif
   }
 
   return status;
 }
 
-/// Check 4: IRQ distribution on RT cores
-CheckStatus checkIrqs(const cpu::IrqSnapshot& irq, const cpu::CpuSet& rtCpus) {
+/// Check 4: Device IRQs landing on RT cores, as a rate over the sample window.
+/// Only numbered device IRQs count, because only those can be moved with
+/// smp_affinity. Per-CPU sources with non-numeric names (local timer, IPIs,
+/// thermal events) and the numbered ARM arch_timer fire on every core by design
+/// and are skipped.
+CheckStatus checkIrqs(const cpu::IrqSnapshot& before, const cpu::IrqSnapshot& after,
+                      const cpu::CpuSet& rtCpus) {
   CheckStatus status;
   status.name = "IRQ Affinity";
 
-  if (irq.lineCount == 0) {
+  if (after.lineCount == 0) {
     status.result = CheckResult::SKIP;
     status.message = "IRQ stats not available";
     return status;
@@ -258,52 +268,80 @@ CheckStatus checkIrqs(const cpu::IrqSnapshot& irq, const cpu::CpuSet& rtCpus) {
     return status;
   }
 
-  // Count total IRQs on RT cores (excluding timer-related which are expected)
+  const double SECONDS = (after.timestampNs > before.timestampNs)
+                             ? static_cast<double>(after.timestampNs - before.timestampNs) / 1e9
+                             : 0.0;
+  if (SECONDS <= 0.0) {
+    status.result = CheckResult::SKIP;
+    status.message = "IRQ sample window too short";
+    return status;
+  }
+
   std::uint64_t rtCoreIrqs = 0;
-  std::vector<std::string> topSources;
+  // Top two sources by count: {count, label}
+  std::pair<std::uint64_t, std::string> top[2]{};
 
-  for (std::size_t line = 0; line < irq.lineCount; ++line) {
-    const auto& IRQ_LINE = irq.lines[line];
+  for (std::size_t a = 0; a < after.lineCount; ++a) {
+    const auto& LINE = after.lines[a];
+    const char* NAME = LINE.name.data();
 
-    // Skip local timer and similar expected IRQs
-    const char* name = IRQ_LINE.name.data();
-    if (std::strcmp(name, "LOC") == 0 || std::strcmp(name, "RES") == 0 ||
-        std::strcmp(name, "CAL") == 0 || std::strcmp(name, "TLB") == 0) {
+    // Per-CPU sources have non-numeric names (LOC, NMI, TRM, IPI0, ...)
+    if (NAME[0] < '0' || NAME[0] > '9') {
+      continue;
+    }
+    // The ARM per-CPU timer is numbered but cannot be moved
+    if (std::strstr(LINE.desc.data(), "arch_timer") != nullptr) {
       continue;
     }
 
-    std::uint64_t lineRtTotal = 0;
-    for (std::size_t cpuIdx = 0; cpuIdx < irq.coreCount && cpuIdx < cpu::IRQ_MAX_CPUS; ++cpuIdx) {
-      if (rtCpus.test(cpuIdx)) {
-        lineRtTotal += IRQ_LINE.perCore[cpuIdx];
+    const cpu::IrqLineStats* prev = nullptr;
+    for (std::size_t b = 0; b < before.lineCount; ++b) {
+      if (std::strcmp(before.lines[b].name.data(), NAME) == 0) {
+        prev = &before.lines[b];
+        break;
       }
     }
 
-    if (lineRtTotal > 0) {
-      rtCoreIrqs += lineRtTotal;
-      if (topSources.size() < 3) {
-        topSources.push_back(fmt::format("{}:{}", IRQ_LINE.name.data(), lineRtTotal));
+    std::uint64_t count = 0;
+    for (std::size_t cpuIdx = 0; cpuIdx < after.coreCount && cpuIdx < cpu::IRQ_MAX_CPUS; ++cpuIdx) {
+      if (rtCpus.test(cpuIdx)) {
+        const std::uint64_t PREV = (prev != nullptr) ? prev->perCore[cpuIdx] : 0;
+        count += (LINE.perCore[cpuIdx] >= PREV) ? (LINE.perCore[cpuIdx] - PREV) : 0;
       }
+    }
+    if (count == 0) {
+      continue;
+    }
+    rtCoreIrqs += count;
+
+    // Label with the device name (last word of the description)
+    const char* device = std::strrchr(LINE.desc.data(), ' ');
+    device = (device != nullptr) ? device + 1 : LINE.desc.data();
+    std::pair<std::uint64_t, std::string> entry{count, fmt::format("IRQ {} {}", NAME, device)};
+    if (entry.first > top[0].first) {
+      top[1] = std::move(top[0]);
+      top[0] = std::move(entry);
+    } else if (entry.first > top[1].first) {
+      top[1] = std::move(entry);
     }
   }
 
+  const int WINDOW_MS = static_cast<int>(SECONDS * 1000.0 + 0.5);
   if (rtCoreIrqs == 0) {
     status.result = CheckResult::PASS;
-    status.message = "No device IRQs on RT cores";
+    status.message = fmt::format("No device IRQs on RT cores during {} ms sample", WINDOW_MS);
   } else {
     status.result = CheckResult::WARN;
-    status.message = fmt::format("{} device IRQs on RT cores", rtCoreIrqs);
-    if (!topSources.empty()) {
-      status.message += " (top: ";
-      for (std::size_t i = 0; i < topSources.size(); ++i) {
-        if (i > 0) {
-          status.message += ", ";
-        }
-        status.message += topSources[i];
-      }
-      status.message += ")";
+    status.message =
+        fmt::format("{:.0f} device IRQs/s on RT cores", static_cast<double>(rtCoreIrqs) / SECONDS);
+    status.message += fmt::format(" (top: {} {:.0f}/s", top[0].second,
+                                  static_cast<double>(top[0].first) / SECONDS);
+    if (top[1].first > 0) {
+      status.message +=
+          fmt::format(", {} {:.0f}/s", top[1].second, static_cast<double>(top[1].first) / SECONDS);
     }
-    status.recommendation = "Move IRQ affinity: echo <mask> > /proc/irq/<n>/smp_affinity";
+    status.message += ")";
+    status.recommendation = "Move them: echo <other cpus> > /proc/irq/<n>/smp_affinity_list";
   }
 
   return status;
@@ -365,6 +403,14 @@ CheckStatus checkSoftirqs(const cpu::SoftirqDelta& delta, const cpu::CpuSet& rtC
 CheckStatus checkTsc(const cpu::CpuFeatures& features) {
   CheckStatus status;
   status.name = "Invariant TSC";
+
+#if !(defined(__x86_64__) || defined(__i386__))
+  // TSC is an x86 timer; ARM uses the architected generic timer instead
+  (void)features;
+  status.result = CheckResult::SKIP;
+  status.message = "Not applicable (x86-only; this CPU uses its architected timer)";
+  return status;
+#endif
 
   if (features.invariantTsc) {
     status.result = CheckResult::PASS;
@@ -569,11 +615,11 @@ int main(int argc, char* argv[]) {
   const cpu::CpuFrequencySummary FREQ = cpu::getCpuFrequencySummary();
   const cpu::CpuIdleSnapshot IDLE = cpu::getCpuIdleSnapshot();
   const cpu::CpuFeatures FEATURES = cpu::getCpuFeatures();
-  const cpu::IrqSnapshot IRQ = cpu::getIrqSnapshot();
-
-  // Softirq needs delta measurement
+  // IRQs and softirqs are measured as rates over the same sample window
+  const cpu::IrqSnapshot IRQ_BEFORE = cpu::getIrqSnapshot();
   const cpu::SoftirqSnapshot SOFTIRQ_BEFORE = cpu::getSoftirqSnapshot();
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  const cpu::IrqSnapshot IRQ_AFTER = cpu::getIrqSnapshot();
   const cpu::SoftirqSnapshot SOFTIRQ_AFTER = cpu::getSoftirqSnapshot();
   const cpu::SoftirqDelta SOFTIRQ_DELTA = cpu::computeSoftirqDelta(SOFTIRQ_BEFORE, SOFTIRQ_AFTER);
 
@@ -582,7 +628,7 @@ int main(int argc, char* argv[]) {
   checks.push_back(checkIsolation(ISOLATION, rtCpus));
   checks.push_back(checkGovernor(FREQ, rtCpus));
   checks.push_back(checkCStates(IDLE, rtCpus));
-  checks.push_back(checkIrqs(IRQ, rtCpus));
+  checks.push_back(checkIrqs(IRQ_BEFORE, IRQ_AFTER, rtCpus));
   checks.push_back(checkSoftirqs(SOFTIRQ_DELTA, rtCpus));
   checks.push_back(checkTsc(FEATURES));
 

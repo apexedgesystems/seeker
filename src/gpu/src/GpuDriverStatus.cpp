@@ -2,6 +2,9 @@
  * @file GpuDriverStatus.cpp
  * @brief GPU driver status collection via NVML and CUDA runtime.
  * @note Queries driver version, persistence mode, compute mode.
+ * @note cudaDriverVersion comes from the CUDA runtime when compiled as CUDA, else
+ *       NVML; cudaRuntimeVersion is only known when compiled as CUDA and stays 0
+ *       otherwise.
  */
 
 #include "src/gpu/inc/GpuDriverStatus.hpp"
@@ -43,6 +46,27 @@ public:
 private:
   bool initialized_;
 };
+
+/// Query system-wide driver, NVML, and CUDA driver versions via NVML.
+inline void queryNvmlSystem(GpuDriverStatus& status) noexcept {
+  std::array<char, 64> version{};
+  if (nvmlSystemGetDriverVersion(version.data(), static_cast<unsigned int>(version.size())) ==
+      NVML_SUCCESS) {
+    status.driverVersion = version.data();
+  }
+  if (nvmlSystemGetNVMLVersion(version.data(), static_cast<unsigned int>(version.size())) ==
+      NVML_SUCCESS) {
+    status.nvmlVersion = version.data();
+  }
+
+  // Highest CUDA version the driver supports (same encoding as cudaDriverGetVersion)
+  if (status.cudaDriverVersion == 0) {
+    int cudaVersion = 0;
+    if (nvmlSystemGetCudaDriverVersion_v2(&cudaVersion) == NVML_SUCCESS) {
+      status.cudaDriverVersion = cudaVersion;
+    }
+  }
+}
 
 /// Query driver status for a device via NVML.
 inline void queryNvmlDriver(nvmlDevice_t device, GpuDriverStatus& status) noexcept {
@@ -179,16 +203,8 @@ GpuDriverStatus getGpuDriverStatus(int deviceIndex) noexcept {
     return status;
   }
 
-  // System-wide driver version
-  std::array<char, 64> version{};
-  if (nvmlSystemGetDriverVersion(version.data(), static_cast<unsigned int>(version.size())) ==
-      NVML_SUCCESS) {
-    status.driverVersion = version.data();
-  }
-  if (nvmlSystemGetNVMLVersion(version.data(), static_cast<unsigned int>(version.size())) ==
-      NVML_SUCCESS) {
-    status.nvmlVersion = version.data();
-  }
+  // System-wide driver and CUDA driver versions
+  queryNvmlSystem(status);
 
   // Per-device info
   nvmlDevice_t device{};
@@ -241,15 +257,7 @@ GpuDriverStatus getSystemGpuDriverInfo() noexcept {
 #if COMPAT_NVML_AVAILABLE
   NvmlSession session;
   if (session.valid()) {
-    std::array<char, 64> version{};
-    if (nvmlSystemGetDriverVersion(version.data(), static_cast<unsigned int>(version.size())) ==
-        NVML_SUCCESS) {
-      status.driverVersion = version.data();
-    }
-    if (nvmlSystemGetNVMLVersion(version.data(), static_cast<unsigned int>(version.size())) ==
-        NVML_SUCCESS) {
-      status.nvmlVersion = version.data();
-    }
+    queryNvmlSystem(status);
   }
 #endif
 

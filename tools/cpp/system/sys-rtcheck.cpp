@@ -127,9 +127,20 @@ CheckStatus checkKernelPreempt(const sys::KernelInfo& kernel) {
     break;
   case sys::PreemptModel::UNKNOWN:
     status.result = CheckResult::WARN;
-    status.message = "Could not determine preemption model";
-    status.recommendation = "Check kernel config: zcat /proc/config.gz | grep PREEMPT";
+    if (kernel.preemptDynamic) {
+      status.message = "PREEMPT_DYNAMIC kernel; active mode needs root to read";
+      status.recommendation =
+          "Boot with preempt=full, or check as root: cat /sys/kernel/debug/sched/preempt";
+    } else {
+      status.message = "Could not determine preemption model";
+      status.recommendation = "Check kernel config: zcat /proc/config.gz | grep PREEMPT";
+    }
     break;
+  }
+
+  // A dynamic kernel may be switched at boot; note it when the mode is known
+  if (kernel.preemptDynamic && kernel.preempt != sys::PreemptModel::UNKNOWN) {
+    status.message += " [PREEMPT_DYNAMIC]";
   }
 
   return status;
@@ -224,10 +235,14 @@ CheckStatus checkRtAutogroup(const sys::RtSchedConfig& sched) {
   return status;
 }
 
-/// Check 5: RT scheduling capability
-CheckStatus checkRtScheduling(const sys::CapabilityStatus& caps) {
+/// Check 5: RT scheduling permission
+/// Linux allows SCHED_FIFO/SCHED_RR with CAP_SYS_NICE (or as root), or without
+/// privileges up to the RLIMIT_RTPRIO soft limit.
+CheckStatus checkRtScheduling(const sys::CapabilityStatus& caps, const sys::ProcessLimits& limits) {
   CheckStatus status;
   status.name = "RT Scheduling";
+
+  const int MAX_RTPRIO = limits.rtprioMax();
 
   if (caps.canUseRtScheduling()) {
     status.result = CheckResult::PASS;
@@ -236,23 +251,31 @@ CheckStatus checkRtScheduling(const sys::CapabilityStatus& caps) {
     } else {
       status.message = "CAP_SYS_NICE available (RT scheduling permitted)";
     }
+  } else if (MAX_RTPRIO > 0) {
+    status.result = CheckResult::PASS;
+    status.message =
+        fmt::format("Permitted without privileges up to priority {} (RLIMIT_RTPRIO)", MAX_RTPRIO);
   } else {
     status.result = CheckResult::FAIL;
-    status.message = "No RT scheduling capability";
-    status.recommendation = "Run as root or: setcap cap_sys_nice+ep <binary>";
+    status.message = "Not permitted: no CAP_SYS_NICE and RTPRIO limit is 0";
+    status.recommendation =
+        "setcap cap_sys_nice+ep <binary>, or set rtprio in /etc/security/limits.conf";
   }
 
   return status;
 }
 
-/// Check 6: RT priority limit
-CheckStatus checkRtprioLimit(const sys::ProcessLimits& limits) {
+/// Check 6: RT priority limit (only applies without CAP_SYS_NICE)
+CheckStatus checkRtprioLimit(const sys::CapabilityStatus& caps, const sys::ProcessLimits& limits) {
   CheckStatus status;
   status.name = "RTPRIO Limit";
 
   const int MAX_RTPRIO = limits.rtprioMax();
 
-  if (MAX_RTPRIO >= 99) {
+  if (caps.canUseRtScheduling()) {
+    status.result = CheckResult::PASS;
+    status.message = "Not limiting (root/CAP_SYS_NICE ignores RLIMIT_RTPRIO)";
+  } else if (MAX_RTPRIO >= 99) {
     status.result = CheckResult::PASS;
     status.message = fmt::format("RTPRIO max = {} (full range)", MAX_RTPRIO);
   } else if (MAX_RTPRIO >= 50) {
@@ -272,24 +295,37 @@ CheckStatus checkRtprioLimit(const sys::ProcessLimits& limits) {
   return status;
 }
 
-/// Check 7: Memory locking capability
+/// Check 7: Memory locking
+/// With CAP_IPC_LOCK (or as root) mlock has no limit. Without it, mlock works
+/// up to the RLIMIT_MEMLOCK soft limit.
 CheckStatus checkMemoryLock(const sys::CapabilityStatus& caps, const sys::ProcessLimits& limits) {
   CheckStatus status;
   status.name = "Memory Lock";
 
+  // Same bar as mem-rtcheck's "reasonable" limit
+  constexpr std::uint64_t MIN_REASONABLE = 64ULL * 1024 * 1024;
+  const std::uint64_t SOFT = limits.memlock.soft;
+
   if (caps.canLockMemory()) {
-    if (limits.hasUnlimitedMemlock()) {
-      status.result = CheckResult::PASS;
-      status.message = "Unlimited memory locking available";
-    } else {
-      status.result = CheckResult::WARN;
-      status.message = fmt::format("Memory lock limited to {} bytes", limits.memlock.soft);
-      status.recommendation = "Add to /etc/security/limits.conf: * - memlock unlimited";
-    }
+    status.result = CheckResult::PASS;
+    status.message = caps.isRoot ? "No limit (running as root)" : "No limit (CAP_IPC_LOCK)";
+  } else if (limits.hasUnlimitedMemlock()) {
+    status.result = CheckResult::PASS;
+    status.message = "Unlimited memlock limit";
+  } else if (SOFT >= MIN_REASONABLE) {
+    status.result = CheckResult::PASS;
+    status.message =
+        fmt::format("Can lock up to {} (RLIMIT_MEMLOCK)", sys::formatLimit(SOFT, true));
+  } else if (SOFT > 0) {
+    status.result = CheckResult::WARN;
+    status.message = fmt::format("Can lock only {} (RLIMIT_MEMLOCK)", sys::formatLimit(SOFT, true));
+    status.recommendation =
+        "Raise memlock in /etc/security/limits.conf, or setcap cap_ipc_lock+ep <binary>";
   } else {
     status.result = CheckResult::FAIL;
-    status.message = "No memory locking capability";
-    status.recommendation = "Run as root or: setcap cap_ipc_lock+ep <binary>";
+    status.message = "Not permitted: memlock limit is 0 and no CAP_IPC_LOCK";
+    status.recommendation =
+        "Raise memlock in /etc/security/limits.conf, or setcap cap_ipc_lock+ep <binary>";
   }
 
   return status;
@@ -680,8 +716,8 @@ int main(int argc, char* argv[]) {
   checks.push_back(checkVirtualization(VIRT));
   checks.push_back(checkRtBandwidth(SCHED));
   checks.push_back(checkRtAutogroup(SCHED));
-  checks.push_back(checkRtScheduling(CAPS));
-  checks.push_back(checkRtprioLimit(LIMITS));
+  checks.push_back(checkRtScheduling(CAPS, LIMITS));
+  checks.push_back(checkRtprioLimit(CAPS, LIMITS));
   checks.push_back(checkMemoryLock(CAPS, LIMITS));
   checks.push_back(checkKernelTaint(KERNEL));
   checks.push_back(checkRtCmdline(KERNEL));

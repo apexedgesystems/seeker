@@ -58,15 +58,25 @@ void printDevice(const gpu::GpuDevice& dev, const gpu::PcieStatus& pcie,
     fmt::print("  UUID:        {}\n", dev.uuid);
   }
 
-  // Compute capability
+  // Compute capability (SM and core counts come only from the CUDA runtime)
   if (dev.smMajor > 0) {
-    fmt::print("  Compute:     SM {} ({} SMs, {} CUDA cores)\n", dev.computeCapability(),
-               dev.smCount, dev.cudaCores);
+    if (dev.smCount > 0) {
+      fmt::print("  Compute:     SM {} ({} SMs, {} CUDA cores)\n", dev.computeCapability(),
+                 dev.smCount, dev.cudaCores);
+    } else {
+      fmt::print("  Compute:     SM {}\n", dev.computeCapability());
+    }
   }
 
-  // Memory
-  fmt::print("  Memory:      {} ({}-bit bus)\n", bytesBinary(dev.totalMemoryBytes),
-             dev.memoryBusWidth);
+  // Memory (integrated GPUs share system memory and may not report a total)
+  if (dev.totalMemoryBytes == 0) {
+    fmt::print("  Memory:      not reported\n");
+  } else if (dev.memoryBusWidth > 0) {
+    fmt::print("  Memory:      {} ({}-bit bus)\n", bytesBinary(dev.totalMemoryBytes),
+               dev.memoryBusWidth);
+  } else {
+    fmt::print("  Memory:      {}\n", bytesBinary(dev.totalMemoryBytes));
+  }
 
   // Execution limits
   if (dev.maxThreadsPerBlock > 0) {
@@ -77,27 +87,33 @@ void printDevice(const gpu::GpuDevice& dev, const gpu::PcieStatus& pcie,
   }
 
   // PCIe
-  if (!pcie.bdf.empty()) {
+  if (pcie.hasLinkInfo()) {
     fmt::print("  PCIe:        {} (x{} Gen{})\n", pcie.bdf, pcie.currentWidth,
                static_cast<int>(pcie.currentGen));
     if (!pcie.isAtMaxLink()) {
       fmt::print("               -> Max: x{} Gen{}\n", pcie.maxWidth,
                  static_cast<int>(pcie.maxGen));
     }
-    if (pcie.numaNode >= 0) {
-      fmt::print("  NUMA node:   {}\n", pcie.numaNode);
+  } else if (!dev.pciBdf.empty()) {
+    fmt::print("  PCIe:        {} (link info not available)\n", dev.pciBdf);
+  }
+  if (!pcie.bdf.empty() && pcie.numaNode >= 0) {
+    fmt::print("  NUMA node:   {}\n", pcie.numaNode);
+  }
+
+  // Driver info and configuration (NVML devices only; none for non-NVIDIA GPUs)
+  if (drv.deviceIndex >= 0) {
+    if (!drv.driverVersion.empty()) {
+      if (drv.cudaDriverVersion > 0) {
+        fmt::print("  Driver:      {} (CUDA {})\n", drv.driverVersion,
+                   gpu::GpuDriverStatus::formatCudaVersion(drv.cudaDriverVersion));
+      } else {
+        fmt::print("  Driver:      {}\n", drv.driverVersion);
+      }
     }
+    fmt::print("  Compute mode: {}\n", gpu::toString(drv.computeMode));
+    fmt::print("  Persistence:  {}\n", drv.persistenceMode ? "enabled" : "disabled");
   }
-
-  // Driver info
-  if (!drv.driverVersion.empty()) {
-    fmt::print("  Driver:      {} (CUDA {})\n", drv.driverVersion,
-               gpu::GpuDriverStatus::formatCudaVersion(drv.cudaDriverVersion));
-  }
-
-  // Configuration
-  fmt::print("  Compute mode: {}\n", gpu::toString(drv.computeMode));
-  fmt::print("  Persistence:  {}\n", drv.persistenceMode ? "enabled" : "disabled");
 
   // Capabilities
   std::string caps;

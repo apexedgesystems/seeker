@@ -105,9 +105,19 @@ $ gpu-rtcheck --json
 | Throttling        | None                  | Power throttling  | Thermal throttling |
 | ECC Memory        | Enabled, no errors    | Disabled          | Uncorrected errors |
 | Retired Pages     | None                  | Single-bit ECC    | Double-bit ECC     |
-| Driver Versions   | Compatible            | -                 | Incompatible       |
+| Driver Versions   | Compatible / known    | -                 | Incompatible       |
 | PCIe Link         | At maximum            | Below maximum     | -                  |
 | Process Isolation | Exclusive or no procs | Shared with procs | -                  |
+
+- **Driver Versions:** the GPU library is compiled as C++, so the CUDA runtime version is not
+  known; the check passes when the driver version or the CUDA version it supports is known (e.g.,
+  `Driver 580.00 (supports CUDA 13.0)`). The driver-vs-runtime comparison runs only when the
+  library is compiled as CUDA and the runtime version is known.
+- **PCIe Link:** SKIP for integrated GPUs without valid PCIe link attributes.
+- **Non-NVIDIA GPUs:** NVML-backed checks are reported as SKIP (not applicable); only PCIe Link
+  is evaluated. A device with no PASS/WARN/FAIL results gets verdict `UNKNOWN`.
+- Only PCI display controllers are reported as GPUs; with none present the tool prints
+  `No GPUs detected.` and exits 1.
 
 **Exit codes:**
 
@@ -145,10 +155,10 @@ $ gpu-bench --json
 | H2D Bandwidth | Host-to-device (pinned + pageable) | Throughput (MiB/s) |
 | D2H Bandwidth | Device-to-host (pinned + pageable) | Throughput (MiB/s) |
 | D2D Copy      | Device-to-device copy              | Throughput (MiB/s) |
-| Kernel Launch | Empty kernel launch overhead       | Latency (μs)       |
-| Memory Alloc  | cudaMalloc/cudaFree timing         | Latency (μs)       |
-| Pinned Alloc  | cudaMallocHost/cudaFreeHost        | Latency (μs)       |
-| Stream Ops    | Stream create/sync, event create   | Latency (μs)       |
+| Kernel Launch | Empty kernel launch overhead       | Latency (us)       |
+| Memory Alloc  | cudaMalloc/cudaFree timing         | Latency (us)       |
+| Pinned Alloc  | cudaMallocHost/cudaFreeHost        | Latency (us)       |
+| Stream Ops    | Stream create/sync, event create   | Latency (us)       |
 | Occupancy     | Max blocks/warps per SM            | Count              |
 
 **Options:**

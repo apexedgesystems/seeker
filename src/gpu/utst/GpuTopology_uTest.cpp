@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <fstream>
 #include <string>
 
 using seeker::gpu::getGpuDevice;
@@ -104,6 +106,97 @@ TEST_F(GpuTopologyTest, HasCudaConsistent) { EXPECT_EQ(topo_.hasCuda(), topo_.nv
 TEST_F(GpuTopologyTest, DeviceIndicesValid) {
   for (int i = 0; i < static_cast<int>(topo_.devices.size()); ++i) {
     EXPECT_EQ(topo_.devices[i].deviceIndex, i);
+  }
+}
+
+/** @test Every enumerated device has a PCI BDF and a non-empty name. */
+TEST_F(GpuTopologyTest, DevicesHaveBdfAndName) {
+  if (topo_.devices.empty()) {
+    GTEST_SKIP() << "No GPUs present";
+  }
+  for (const auto& DEV : topo_.devices) {
+    EXPECT_FALSE(DEV.pciBdf.empty()) << "GPU " << DEV.deviceIndex;
+    EXPECT_FALSE(DEV.name.empty()) << "GPU " << DEV.deviceIndex;
+  }
+}
+
+/** @test Every GPU is a PCI display controller (class 0x03); platform DRM nodes are not GPUs. */
+TEST_F(GpuTopologyTest, DevicesArePciDisplayControllers) {
+  for (const auto& DEV : topo_.devices) {
+    std::ifstream classFile("/sys/bus/pci/devices/" + DEV.pciBdf + "/class");
+    std::string pciClass;
+    ASSERT_TRUE(classFile && std::getline(classFile, pciClass))
+        << "GPU " << DEV.deviceIndex << " (" << DEV.pciBdf << ") has no PCI class in sysfs";
+    EXPECT_EQ(pciClass.rfind("0x03", 0), 0U) << "GPU " << DEV.deviceIndex << " class " << pciClass;
+  }
+}
+
+/** @test BDFs use normalized sysfs form ("dddd:bb:dd.f", lowercase hex). */
+TEST_F(GpuTopologyTest, BdfNormalized) {
+  if (topo_.devices.empty()) {
+    GTEST_SKIP() << "No GPUs present";
+  }
+  for (const auto& DEV : topo_.devices) {
+    const std::string& BDF = DEV.pciBdf;
+    ASSERT_EQ(BDF.size(), 12U) << BDF;
+    EXPECT_EQ(BDF[4], ':') << BDF;
+    EXPECT_EQ(BDF[7], ':') << BDF;
+    EXPECT_EQ(BDF[10], '.') << BDF;
+    for (const char C : BDF) {
+      EXPECT_TRUE((C >= '0' && C <= '9') || (C >= 'a' && C <= 'f') || C == ':' || C == '.') << BDF;
+    }
+    EXPECT_GE(DEV.pciBus, 0);
+    EXPECT_LE(DEV.pciBus, 0xFF);
+    EXPECT_LE(DEV.pciDevice, 0x1F);
+    EXPECT_LE(DEV.pciFunction, 0x7);
+  }
+}
+
+/** @test BDFs are unique (no device reported twice). */
+TEST_F(GpuTopologyTest, BdfUnique) {
+  for (std::size_t i = 0; i < topo_.devices.size(); ++i) {
+    for (std::size_t j = i + 1; j < topo_.devices.size(); ++j) {
+      EXPECT_NE(topo_.devices[i].pciBdf, topo_.devices[j].pciBdf);
+    }
+  }
+}
+
+/** @test NVIDIA devices are listed before other vendors (NVML ordinals first). */
+TEST_F(GpuTopologyTest, NvidiaDevicesFirst) {
+  if (topo_.nvidiaCount == 0) {
+    GTEST_SKIP() << "No NVIDIA GPUs present";
+  }
+  for (int i = 0; i < topo_.nvidiaCount; ++i) {
+    EXPECT_EQ(topo_.devices[static_cast<std::size_t>(i)].vendor, GpuVendor::Nvidia);
+  }
+}
+
+/** @test Compute capability, when reported, is in a plausible range. */
+TEST_F(GpuTopologyTest, ComputeCapabilityRange) {
+  for (const auto& DEV : topo_.devices) {
+    EXPECT_GE(DEV.smMajor, 0);
+    EXPECT_LT(DEV.smMajor, 100);
+    EXPECT_GE(DEV.smMinor, 0);
+    if (DEV.vendor != GpuVendor::Nvidia) {
+      EXPECT_EQ(DEV.smMajor, 0);
+    } else if (!DEV.uuid.empty()) {
+      // Enumerated through the NVIDIA driver (sysfs entries carry no UUID)
+      EXPECT_GE(DEV.smMajor, 3) << "GPU " << DEV.deviceIndex;
+    }
+  }
+}
+
+/** @test getGpuDevice(i) agrees with topology entry i. */
+TEST_F(GpuTopologyTest, GetGpuDeviceMatchesTopology) {
+  if (topo_.devices.empty()) {
+    GTEST_SKIP() << "No GPUs present";
+  }
+  for (const auto& DEV : topo_.devices) {
+    const GpuDevice SINGLE = getGpuDevice(DEV.deviceIndex);
+    EXPECT_EQ(SINGLE.deviceIndex, DEV.deviceIndex);
+    EXPECT_EQ(SINGLE.pciBdf, DEV.pciBdf);
+    EXPECT_EQ(SINGLE.name, DEV.name);
+    EXPECT_EQ(SINGLE.vendor, DEV.vendor);
   }
 }
 

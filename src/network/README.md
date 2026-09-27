@@ -201,8 +201,12 @@ struct InterfaceInfo {
   int numaNode{-1};    ///< NUMA node (-1 if unknown)
 
   bool isUp() const noexcept;       ///< operState == "up"
-  bool isPhysical() const noexcept; ///< Has /sys/class/net/<if>/device
-  bool hasLink() const noexcept;    ///< isUp() && speedMbps > 0
+  bool isPhysical() const noexcept; ///< !isVirtualInterface(): not lo or a virtual name prefix
+                                    ///< (veth, docker, br-, virbr, vnet, tap, tun, dummy, bond);
+                                    ///< a link type isNicLinkType() accepts (Ethernet, Wi-Fi,
+                                    ///< InfiniBand) when sysfs reports one; and a device symlink,
+                                    ///< a link speed, or a full/half duplex setting
+  bool hasLink() const noexcept;    ///< isUp(); no speed required (Wi-Fi reports none)
   std::string toString() const;     ///< NOT RT-safe
 };
 
@@ -243,10 +247,12 @@ using namespace seeker::network;
 // Query specific interface (RT-safe)
 auto eth0 = getInterfaceInfo("eth0");
 if (eth0.hasLink()) {
-  fmt::print("{}: {} @ {} Mbps\n",
-             eth0.ifname.data(),
-             eth0.operState.data(),
-             eth0.speedMbps);
+  if (eth0.speedMbps > 0) {
+    fmt::print("{}: {} @ {} Mbps\n", eth0.ifname.data(), eth0.operState.data(), eth0.speedMbps);
+  } else {
+    // Wi-Fi reports no speed
+    fmt::print("{}: {} (speed not reported)\n", eth0.ifname.data(), eth0.operState.data());
+  }
 }
 
 // List all physical NICs
@@ -1084,10 +1090,11 @@ int main() {
   fmt::print("Interfaces: {} found\n", interfaces.count);
   for (std::size_t i = 0; i < interfaces.count; ++i) {
     const auto& iface = interfaces.interfaces[i];
-    fmt::print("  {}: {} {}\n",
-               iface.ifname.data(),
-               iface.operState.data(),
-               iface.hasLink() ? formatSpeed(iface.speedMbps) : "no link");
+    // hasLink() follows operstate; Wi-Fi reports no speed
+    const std::string link = !iface.hasLink()      ? "no link"
+                             : iface.speedMbps > 0 ? formatSpeed(iface.speedMbps)
+                                                   : "link (speed not reported)";
+    fmt::print("  {}: {} {}\n", iface.ifname.data(), iface.operState.data(), link);
   }
 
   // 2. Socket Buffer Configuration
