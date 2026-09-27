@@ -73,7 +73,7 @@ struct BlockDevice {
   [[nodiscard]] bool isAdvancedFormat() const noexcept;
 
   /// @brief Get human-readable device type string.
-  /// @return "NVMe", "SSD", "HDD", or "Unknown".
+  /// @return "NVMe", "SD/eMMC", "HDD", "SSD", "Removable", or "Unknown".
   [[nodiscard]] const char* deviceType() const noexcept;
 
   /// @brief Human-readable summary.

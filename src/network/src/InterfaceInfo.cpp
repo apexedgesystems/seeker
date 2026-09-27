@@ -8,6 +8,7 @@
 #include "src/helpers/inc/Files.hpp"
 
 #include <dirent.h>
+#include <net/if_arp.h> // ARPHRD_ETHER, ARPHRD_INFINIBAND
 #include <unistd.h>
 #include <cstdio>
 #include <cstdlib>
@@ -91,6 +92,12 @@ inline int countDirsWithPrefix(const char* dirPath, const char* prefix) noexcept
 
 } // namespace
 
+/* ----------------------------- isNicLinkType ----------------------------- */
+
+bool isNicLinkType(int linkType) noexcept {
+  return linkType == ARPHRD_ETHER || linkType == ARPHRD_INFINIBAND;
+}
+
 /* ----------------------------- isVirtualInterface ----------------------------- */
 
 bool isVirtualInterface(const char* ifname) noexcept {
@@ -124,12 +131,11 @@ bool isVirtualInterface(const char* ifname) noexcept {
 
   char pathBuf[PATH_BUFFER_SIZE];
 
-  // Only Ethernet-framed links count as NICs (ARPHRD_ETHER = 1, which includes
-  // Wi-Fi). CAN (280) and other link types have a device symlink but are not NICs.
-  constexpr int ARPHRD_ETHER_TYPE = 1;
+  // Only NIC link types count (Ethernet-framed, including Wi-Fi, and InfiniBand).
+  // CAN, raw IP and other link types can have a device symlink but are not NICs.
   std::snprintf(pathBuf, sizeof(pathBuf), "%s/%s/type", NET_SYS_PATH, ifname);
   const int LINK_TYPE = readFileInt(pathBuf, -1);
-  if (LINK_TYPE >= 0 && LINK_TYPE != ARPHRD_ETHER_TYPE) {
+  if (LINK_TYPE >= 0 && !isNicLinkType(LINK_TYPE)) {
     return true;
   }
 

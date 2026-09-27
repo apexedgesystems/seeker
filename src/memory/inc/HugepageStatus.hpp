@@ -103,7 +103,10 @@ struct HugepageStatus {
 
 /**
  * @brief Collect hugepage allocation status from sysfs.
- * @return Populated HugepageStatus; sizeCount=0 if no hugepages configured.
+ * @return Populated HugepageStatus. sizeCount is the number of hugepage sizes the
+ *         kernel supports (hugepages-NkB entries in /sys/kernel/mm/hugepages, at
+ *         most HP_MAX_SIZES), whether or not any pages are configured; it is 0
+ *         only when the kernel has no hugepage support.
  * @note NOT RT-safe: Scans sysfs directories, performs file I/O.
  *
  * Sources:

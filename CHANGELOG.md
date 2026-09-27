@@ -29,8 +29,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `InterfaceInfo::hasLink()` follows the operational state alone; a link
   speed is not required (Wi-Fi reports none)
-- Interfaces whose link type is not Ethernet (for example CAN) are not
-  physical NICs
+- Only Ethernet-framed (including Wi-Fi) and InfiniBand links count as
+  physical NICs (`isNicLinkType()`); CAN and raw-IP interfaces do not
 - `GpuTopology` lists NVIDIA devices first (NVML ordinals), then PCI display
   controllers (class 0x03) from sysfs ordered by DRM card number, without
   duplicates; PCI addresses use the sysfs form (`0000:01:00.0`)

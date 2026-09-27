@@ -93,6 +93,16 @@ struct InterfaceList {
 /* ----------------------------- API ----------------------------- */
 
 /**
+ * @brief Check if a link-layer type counts as a NIC.
+ * @param linkType ARPHRD_* value, as read from /sys/class/net/\<if\>/type.
+ * @return true for Ethernet-framed links (ARPHRD_ETHER, which includes Wi-Fi)
+ *         and InfiniBand (ARPHRD_INFINIBAND); false for every other type, such
+ *         as CAN (ARPHRD_CAN) and raw IP (ARPHRD_RAWIP).
+ * @note RT-safe: Pure computation, no I/O.
+ */
+[[nodiscard]] bool isNicLinkType(int linkType) noexcept;
+
+/**
  * @brief Check if an interface name refers to a virtual device.
  * @param ifname Interface name to check.
  * @return true if virtual (loopback, veth, bridge, tap, tun, etc.).
@@ -100,6 +110,7 @@ struct InterfaceList {
  *
  * Checks:
  *  - Known virtual prefixes (veth, docker, br-, virbr, vnet, tap, tun, dummy)
+ *  - Link type rejected by isNicLinkType() (e.g., CAN), when sysfs reports one
  *  - Absence of /sys/class/net/\<if\>/device symlink
  *  - Fallback: no speed/duplex for physical indicators
  */
