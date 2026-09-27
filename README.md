@@ -391,14 +391,14 @@ make compose-ubsan          # UBSanitizer
 
 | Domain  | Test Target         | Tests |
 | ------- | ------------------- | ----- |
-| CPU     | `TestSeekerCpu`     | 212   |
+| CPU     | `TestSeekerCpu`     | 222   |
 | Memory  | `TestSeekerMemory`  | 182   |
-| Storage | `TestSeekerStorage` | 132   |
-| Network | `TestSeekerNetwork` | 221   |
+| Storage | `TestSeekerStorage` | 133   |
+| Network | `TestSeekerNetwork` | 222   |
 | Timing  | `TestSeekerTiming`  | 226   |
-| System  | `TestSeekerSystem`  | 342   |
+| System  | `TestSeekerSystem`  | 344   |
 | Device  | `TestSeekerDevice`  | 335   |
-| GPU     | `TestSeekerGpu`     | 143   |
+| GPU     | `TestSeekerGpu`     | 159   |
 
 Some tests may be skipped on systems without NUMA, specific hardware, or
 elevated privileges.
