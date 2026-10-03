@@ -12,6 +12,8 @@ set(UNIT_TEST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/StorageBench_uTest.cpp"
 )
 
+# The StorageBench suites that run benchmarks do real I/O and check wall time
+# against a budget, so they run in the serial Timing lane.
 seeker_add_gtest(
   TARGET
   TestSeekerStorage
@@ -23,4 +25,7 @@ seeker_add_gtest(
   LABELS
   diagnostics
   storage
+  TIMING_PATTERNS
+  "^(SeqWrite|SeqRead|Fsync|RandRead|RandWrite)BenchTest\\."
+  "^(BenchSuiteRun|TimeBudget|Cleanup|EdgeCase)Test\\."
 )
