@@ -24,6 +24,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `KernelInfo::preemptDynamic`; the active mode of a PREEMPT_DYNAMIC kernel is
   read from debugfs or the `preempt=` boot parameter
 - cpu-info and cpu-snapshot print aarch64 features and an `arch` JSON field
+- `SYNC_INTERVAL_BYTES` (4 MiB) in `StorageBench`: synced benchmark writes call
+  `fdatasync` at this interval, so no sync flushes more than 4 MiB
 
 ### Changed
 
@@ -58,6 +60,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   attributes, and a device with no applicable check gets verdict `UNKNOWN`
 - cpu-info shows threads per core and the frequency range across mixed core
   types
+- `StorageBench` time budget: `timeBudgetSec` bounds each benchmark's wall time,
+  setup and every sync included, to the budget plus one I/O and one sync of at
+  most `SYNC_INTERVAL_BYTES` (a suite run to five times that). The
+  sequential-read, random-read and random-write benchmarks write their file
+  within half the budget and run on what was written, so `dataSize` is an upper
+  bound. storage-bench `--budget` and `--size` follow the same contract
+- Sequential write with `useFsync` syncs every `SYNC_INTERVAL_BYTES` inside the
+  measured time, so its throughput is the rate at which data is written and
+  synced in 4 MiB steps, sync time included. That reads lower than writing
+  everything and syncing once at the end: about 10% lower on an SD card and
+  15 to 25% lower on an NVMe drive (ext4) at the default size
+- The sequential-read benchmark syncs only its own file and asks the kernel to
+  drop that file's cached pages before reading (best effort), so its throughput
+  is the device's where the kernel honours the request (not on tmpfs)
 
 ### Fixed
 
@@ -70,6 +86,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - PREEMPT_DYNAMIC kernels were graded as fully preemptible
 - Systems that report core_id 0 for every core were counted as one core
 - gpu-stat printed `%%` instead of `%`
+- Storage benchmarks overran their time budget by seconds on slow or busy
+  disks: sequential write synced everything it had written after the deadline,
+  and the read and random benchmarks wrote and synced their whole file before
+  the budget started
+- The sequential-read benchmark called `sync()`, flushing every filesystem on
+  the machine while dropping no cached pages
+- The storage-bench README promised a ~10 second quick run, privileges for
+  `--direct` and large sequential I/O; the sequential benchmarks issue 4 KiB
+  operations
 
 ---
 

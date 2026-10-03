@@ -582,20 +582,21 @@ fmt::print("Utilization: {:.1f}%\n", delta.utilizationPct);
 #### Key Types
 
 ```cpp
-inline constexpr std::size_t BENCH_PATH_SIZE = 256;
+inline constexpr std::size_t BENCH_PATH_SIZE = 512;
 inline constexpr std::size_t DEFAULT_IO_SIZE = 4096;
 inline constexpr std::size_t DEFAULT_DATA_SIZE = 64 * 1024 * 1024;  // 64 MiB
 inline constexpr std::size_t DEFAULT_ITERATIONS = 1000;
 inline constexpr double MAX_BENCH_TIME_SEC = 30.0;
+inline constexpr std::size_t SYNC_INTERVAL_BYTES = 4 * 1024 * 1024; // 4 MiB
 
 struct BenchConfig {
   std::array<char, BENCH_PATH_SIZE> directory{};
   std::size_t ioSize{DEFAULT_IO_SIZE};       ///< I/O operation size
-  std::size_t dataSize{DEFAULT_DATA_SIZE};   ///< Total data for throughput tests
+  std::size_t dataSize{DEFAULT_DATA_SIZE};   ///< Upper bound on data written per benchmark
   std::size_t iterations{DEFAULT_ITERATIONS}; ///< Iterations for latency tests
-  double timeBudgetSec{MAX_BENCH_TIME_SEC};   ///< Max time per benchmark
+  double timeBudgetSec{MAX_BENCH_TIME_SEC};   ///< Wall-time budget per benchmark (seconds)
   bool useDirectIo{false};  ///< O_DIRECT to bypass page cache
-  bool useFsync{true};      ///< fsync after writes
+  bool useFsync{true};      ///< Sync the measured writes
 
   void setDirectory(const char* path) noexcept;
   [[nodiscard]] bool isValid() const noexcept;
@@ -603,11 +604,11 @@ struct BenchConfig {
 
 struct BenchResult {
   bool success{false};
-  double elapsedSec{0.0};
+  double elapsedSec{0.0};           ///< Measured phase, syncs included
   std::size_t operations{0};
   std::size_t bytesTransferred{0};
 
-  // Throughput (for seq read/write)
+  // Throughput (for seq read/write): bytesTransferred / elapsedSec
   double throughputBytesPerSec{0.0};
 
   // Latency stats (for fsync, random I/O)
@@ -646,6 +647,26 @@ struct BenchSuite {
 [[nodiscard]] BenchSuite runBenchSuite(const BenchConfig& config) noexcept;
 ```
 
+#### Time Budget
+
+`timeBudgetSec` bounds each benchmark's total wall time, setup and every sync
+included: a benchmark returns within its budget plus one I/O and one sync of at
+most `SYNC_INTERVAL_BYTES`, and `runBenchSuite()` within five times that.
+
+- **Setup counts:** sequential read, random read and random write first write
+  their file, using at most half the budget, then run on the bytes actually
+  written. `dataSize` is an upper bound, not a guarantee.
+- **Bounded syncs:** setup writes, and measured sequential writes with
+  `useFsync`, are synced every `SYNC_INTERVAL_BYTES`, so no sync flushes more
+  than that. Random writes with `useFsync` are synced after each write.
+- **What the numbers cover:** `elapsedSec` and the throughput cover the
+  measured phase including its syncs; with `useFsync`, sequential-write
+  throughput includes the cost of making the data durable. Setup time counts
+  against the budget, not against `elapsedSec`.
+- **Own file only:** a benchmark syncs only its own file. Before the
+  sequential read it asks the kernel to drop that file's cached pages; this is
+  best effort, and on tmpfs, for one, the reads still come from memory.
+
 #### Usage
 
 ```cpp
@@ -653,8 +674,9 @@ using namespace seeker::storage;
 
 BenchConfig config;
 config.setDirectory("/tmp");
-config.dataSize = 64 * 1024 * 1024;  // 64 MiB
+config.dataSize = 64 * 1024 * 1024;  // 64 MiB, an upper bound
 config.iterations = 100;
+config.timeBudgetSec = 10.0;         // per benchmark, setup and syncs included
 
 auto suite = runBenchSuite(config);
 

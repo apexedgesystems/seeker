@@ -32,6 +32,9 @@ constexpr std::size_t MAX_LATENCY_SAMPLES = 100000;
 constexpr double NS_PER_SEC = 1.0e9;
 constexpr double NS_PER_US = 1000.0;
 
+/// Share of the time budget a benchmark's setup may spend writing its file.
+constexpr double SETUP_BUDGET_FRACTION = 0.5;
+
 /* ----------------------------- Time Helpers ----------------------------- */
 
 /// Get monotonic time in nanoseconds.
@@ -49,6 +52,81 @@ inline double nsToSec(std::uint64_t ns) noexcept { return static_cast<double>(ns
 
 /// Convert nanoseconds to microseconds.
 inline double nsToUs(std::uint64_t ns) noexcept { return static_cast<double>(ns) / NS_PER_US; }
+
+/// Monotonic time budgetSec after startNs. A budget that is not positive
+/// (including NaN) leaves no time; one past the clock's range never expires.
+inline std::uint64_t deadlineAfter(std::uint64_t startNs, double budgetSec) noexcept {
+  if (!(budgetSec > 0.0)) {
+    return startNs;
+  }
+  const double BUDGET_NS = budgetSec * NS_PER_SEC;
+  if (BUDGET_NS >= static_cast<double>(UINT64_MAX - startNs)) {
+    return UINT64_MAX;
+  }
+  return startNs + static_cast<std::uint64_t>(BUDGET_NS);
+}
+
+/* ----------------------------- Budget Helpers ----------------------------- */
+
+/// Deadlines of one benchmark run, both counted from the start of the run.
+struct BenchDeadlines {
+  std::uint64_t setupNs{0}; ///< Setup stops writing here (SETUP_BUDGET_FRACTION of the budget)
+  std::uint64_t endNs{0};   ///< The measured phase stops here (the whole budget)
+};
+
+/// Start a benchmark's time budget. Called before any setup, so the budget
+/// covers the whole run.
+inline BenchDeadlines startBudget(double budgetSec) noexcept {
+  const std::uint64_t NOW = getTimeNs();
+  BenchDeadlines deadlines{};
+  deadlines.setupNs = deadlineAfter(NOW, budgetSec * SETUP_BUDGET_FRACTION);
+  deadlines.endNs = deadlineAfter(NOW, budgetSec);
+  return deadlines;
+}
+
+/// Bytes and write calls completed by writeSequential().
+struct WriteTally {
+  std::size_t bytes{0};
+  std::size_t ops{0};
+};
+
+/// Append blockSize-byte writes of buf to fd until limit bytes are written, a
+/// write or sync fails, or deadlineNs passes. With syncData, fdatasync runs
+/// every SYNC_INTERVAL_BYTES and once at the end, so no sync flushes more than
+/// SYNC_INTERVAL_BYTES. The deadline is checked before each write, which is
+/// also after each sync: the call ends at most one write and one sync past it.
+inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize, std::size_t limit,
+                                  std::uint64_t deadlineNs, bool syncData) noexcept {
+  WriteTally tally{};
+  std::size_t unsynced = 0;
+
+  while (tally.bytes < limit) {
+    if (getTimeNs() > deadlineNs) {
+      break;
+    }
+
+    const ssize_t WRITTEN = ::write(fd, buf, blockSize);
+    if (WRITTEN <= 0) {
+      break;
+    }
+
+    tally.bytes += static_cast<std::size_t>(WRITTEN);
+    unsynced += static_cast<std::size_t>(WRITTEN);
+    ++tally.ops;
+
+    if (syncData && unsynced >= SYNC_INTERVAL_BYTES) {
+      if (::fdatasync(fd) != 0) {
+        return tally;
+      }
+      unsynced = 0;
+    }
+  }
+
+  if (syncData && unsynced > 0) {
+    ::fdatasync(fd);
+  }
+  return tally;
+}
 
 /* ----------------------------- File Helpers ----------------------------- */
 
@@ -227,6 +305,8 @@ BenchResult runSeqWriteBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  const BenchDeadlines DEADLINES = startBudget(config.timeBudgetSec);
+
   // Allocate aligned buffer
   void* buf = allocAlignedBuffer(config.ioSize);
   if (buf == nullptr) {
@@ -246,44 +326,22 @@ BenchResult runSeqWriteBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  // Measured phase: the writes and, with useFsync, the interval syncs that
+  // bound the data the final sync has to flush
   const std::uint64_t START = getTimeNs();
-  const std::uint64_t DEADLINE =
-      START + static_cast<std::uint64_t>(config.timeBudgetSec * NS_PER_SEC);
-
-  std::size_t bytesWritten = 0;
-  std::size_t ops = 0;
-
-  while (bytesWritten < config.dataSize) {
-    // Check time budget
-    if (getTimeNs() > DEADLINE) {
-      break;
-    }
-
-    const ssize_t WRITTEN = ::write(FD, buf, config.ioSize);
-    if (WRITTEN <= 0) {
-      break;
-    }
-
-    bytesWritten += static_cast<std::size_t>(WRITTEN);
-    ++ops;
-  }
-
-  // Sync if requested
-  if (config.useFsync) {
-    ::fsync(FD);
-  }
-
+  const WriteTally TALLY =
+      writeSequential(FD, buf, config.ioSize, config.dataSize, DEADLINES.endNs, config.useFsync);
   const std::uint64_t END = getTimeNs();
 
   ::close(FD);
   removeFile(tempPath.data());
   std::free(buf);
 
-  result.success = (bytesWritten > 0);
+  result.success = (TALLY.bytes > 0);
   result.elapsedSec = nsToSec(END - START);
-  result.operations = ops;
-  result.bytesTransferred = bytesWritten;
-  result.throughputBytesPerSec = static_cast<double>(bytesWritten) / result.elapsedSec;
+  result.operations = TALLY.ops;
+  result.bytesTransferred = TALLY.bytes;
+  result.throughputBytesPerSec = static_cast<double>(TALLY.bytes) / result.elapsedSec;
 
   return result;
 }
@@ -295,6 +353,8 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  const BenchDeadlines DEADLINES = startBudget(config.timeBudgetSec);
+
   void* buf = allocAlignedBuffer(config.ioSize);
   if (buf == nullptr) {
     return result;
@@ -304,7 +364,7 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
   std::array<char, BENCH_PATH_SIZE> tempPath{};
   makeTempPath(tempPath.data(), tempPath.size(), config.directory.data());
 
-  // Write phase (not timed)
+  // Write phase (not timed, within the setup share of the budget)
   int fd = openFile(tempPath.data(), O_WRONLY | O_CREAT | O_TRUNC, config.useDirectIo);
   if (fd < 0) {
     std::free(buf);
@@ -312,21 +372,16 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
   }
 
   std::memset(buf, 0x55, config.ioSize);
-  std::size_t written = 0;
-  while (written < config.dataSize) {
-    const ssize_t W = ::write(fd, buf, config.ioSize);
-    if (W <= 0) {
-      break;
-    }
-    written += static_cast<std::size_t>(W);
-  }
-  ::fsync(fd);
+  const WriteTally SETUP =
+      writeSequential(fd, buf, config.ioSize, config.dataSize, DEADLINES.setupNs, true);
+
+  // Ask the kernel to evict this file's now-clean pages so the read phase
+  // reaches the device. Best effort: the kernel may keep pages (tmpfs keeps
+  // all of them), and reads of those are served from memory.
+  ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
   ::close(fd);
 
-  // Drop caches if possible (requires root, will fail silently otherwise)
-  ::sync();
-
-  // Read phase (timed)
+  // Read phase (timed): the bytes the setup wrote, until the budget runs out
   fd = openFile(tempPath.data(), O_RDONLY, config.useDirectIo);
   if (fd < 0) {
     removeFile(tempPath.data());
@@ -335,14 +390,12 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
   }
 
   const std::uint64_t START = getTimeNs();
-  const std::uint64_t DEADLINE =
-      START + static_cast<std::uint64_t>(config.timeBudgetSec * NS_PER_SEC);
 
   std::size_t bytesRead = 0;
   std::size_t ops = 0;
 
-  while (bytesRead < written) {
-    if (getTimeNs() > DEADLINE) {
+  while (bytesRead < SETUP.bytes) {
+    if (getTimeNs() > DEADLINES.endNs) {
       break;
     }
 
@@ -377,6 +430,8 @@ BenchResult runFsyncBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  const BenchDeadlines DEADLINES = startBudget(config.timeBudgetSec);
+
   // Small buffer for fsync test
   constexpr std::size_t FSYNC_BLOCK = 4096;
   void* buf = allocAlignedBuffer(FSYNC_BLOCK);
@@ -398,13 +453,11 @@ BenchResult runFsyncBench(const BenchConfig& config) noexcept {
   latencies.reserve(std::min(config.iterations, MAX_LATENCY_SAMPLES));
 
   const std::uint64_t START = getTimeNs();
-  const std::uint64_t DEADLINE =
-      START + static_cast<std::uint64_t>(config.timeBudgetSec * NS_PER_SEC);
 
   std::size_t ops = 0;
 
   for (std::size_t i = 0; i < config.iterations; ++i) {
-    if (getTimeNs() > DEADLINE) {
+    if (getTimeNs() > DEADLINES.endNs) {
       break;
     }
 
@@ -452,6 +505,8 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  const BenchDeadlines DEADLINES = startBudget(config.timeBudgetSec);
+
   constexpr std::size_t RAND_BLOCK = 4096;
   void* buf = allocAlignedBuffer(RAND_BLOCK);
   if (buf == nullptr) {
@@ -468,19 +523,12 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
     return result;
   }
 
-  // Write data (not timed)
+  // Write data (not timed, within the setup share of the budget)
   std::memset(buf, 0x77, RAND_BLOCK);
-  std::size_t written = 0;
-  while (written < config.dataSize) {
-    const ssize_t W = ::write(fd, buf, RAND_BLOCK);
-    if (W <= 0) {
-      break;
-    }
-    written += static_cast<std::size_t>(W);
-  }
-  ::fsync(fd);
+  const WriteTally SETUP =
+      writeSequential(fd, buf, RAND_BLOCK, config.dataSize, DEADLINES.setupNs, true);
 
-  const std::size_t NUM_BLOCKS = written / RAND_BLOCK;
+  const std::size_t NUM_BLOCKS = SETUP.bytes / RAND_BLOCK;
   if (NUM_BLOCKS < 2) {
     ::close(fd);
     removeFile(tempPath.data());
@@ -488,7 +536,7 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
     return result;
   }
 
-  // Random read phase
+  // Random read phase over the blocks the setup wrote
   std::mt19937_64 rng(42); // Fixed seed for reproducibility
   std::uniform_int_distribution<std::size_t> dist(0, NUM_BLOCKS - 1);
 
@@ -496,14 +544,12 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
   latencies.reserve(std::min(config.iterations, MAX_LATENCY_SAMPLES));
 
   const std::uint64_t START = getTimeNs();
-  const std::uint64_t DEADLINE =
-      START + static_cast<std::uint64_t>(config.timeBudgetSec * NS_PER_SEC);
 
   std::size_t ops = 0;
   std::size_t bytesRead = 0;
 
   for (std::size_t i = 0; i < config.iterations; ++i) {
-    if (getTimeNs() > DEADLINE) {
+    if (getTimeNs() > DEADLINES.endNs) {
       break;
     }
 
@@ -548,6 +594,8 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
     return result;
   }
 
+  const BenchDeadlines DEADLINES = startBudget(config.timeBudgetSec);
+
   constexpr std::size_t RAND_BLOCK = 4096;
   void* buf = allocAlignedBuffer(RAND_BLOCK);
   if (buf == nullptr) {
@@ -565,18 +613,11 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
     return result;
   }
 
-  // Pre-allocate file
-  std::size_t written = 0;
-  while (written < config.dataSize) {
-    const ssize_t W = ::write(fd, buf, RAND_BLOCK);
-    if (W <= 0) {
-      break;
-    }
-    written += static_cast<std::size_t>(W);
-  }
-  ::fsync(fd);
+  // Pre-allocate file (not timed, within the setup share of the budget)
+  const WriteTally SETUP =
+      writeSequential(fd, buf, RAND_BLOCK, config.dataSize, DEADLINES.setupNs, true);
 
-  const std::size_t NUM_BLOCKS = written / RAND_BLOCK;
+  const std::size_t NUM_BLOCKS = SETUP.bytes / RAND_BLOCK;
   if (NUM_BLOCKS < 2) {
     ::close(fd);
     removeFile(tempPath.data());
@@ -584,7 +625,7 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
     return result;
   }
 
-  // Random write phase
+  // Random write phase over the blocks the setup wrote
   std::mt19937_64 rng(42);
   std::uniform_int_distribution<std::size_t> dist(0, NUM_BLOCKS - 1);
 
@@ -592,14 +633,12 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
   latencies.reserve(std::min(config.iterations, MAX_LATENCY_SAMPLES));
 
   const std::uint64_t START = getTimeNs();
-  const std::uint64_t DEADLINE =
-      START + static_cast<std::uint64_t>(config.timeBudgetSec * NS_PER_SEC);
 
   std::size_t ops = 0;
   std::size_t bytesWritten = 0;
 
   for (std::size_t i = 0; i < config.iterations; ++i) {
-    if (getTimeNs() > DEADLINE) {
+    if (getTimeNs() > DEADLINES.endNs) {
       break;
     }
 

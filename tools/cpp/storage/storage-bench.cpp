@@ -42,11 +42,18 @@ seeker::helpers::args::ArgMap buildArgMap() {
   map[ARG_HELP] = {"--help", 0, false, "Show this help message"};
   map[ARG_JSON] = {"--json", 0, false, "Output in JSON format"};
   map[ARG_DIR] = {"--dir", 1, false, "Directory to run benchmarks in (default: /tmp)"};
-  map[ARG_SIZE] = {"--size", 1, false, "Data size in MB for throughput tests (default: 64)"};
+  map[ARG_SIZE] = {
+      "--size", 1, false,
+      "Upper bound on data written per benchmark, in MB of 10^6 bytes (default: 64 MiB)"};
   map[ARG_ITERS] = {"--iters", 1, false, "Iterations for latency tests (default: 1000)"};
-  map[ARG_BUDGET] = {"--budget", 1, false, "Time budget per test in seconds (default: 30)"};
+  map[ARG_BUDGET] = {
+      "--budget", 1, false,
+      "Time budget per benchmark in seconds, setup and syncs included (default: 30)"};
   map[ARG_DIRECT] = {"--direct", 0, false, "Use O_DIRECT to bypass page cache"};
-  map[ARG_QUICK] = {"--quick", 0, false, "Quick mode: small data, few iterations"};
+  map[ARG_QUICK] = {
+      "--quick", 0, false,
+      "Quick mode: 8 MB of data, 100 iterations, 10 s budget; overrides --size, --iters "
+      "and --budget"};
   return map;
 }
 
