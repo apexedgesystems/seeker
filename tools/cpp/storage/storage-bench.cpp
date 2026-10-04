@@ -9,9 +9,14 @@
 #include "src/storage/inc/StorageBench.hpp"
 #include "src/helpers/inc/Args.hpp"
 
+#include <charconv>
+#include <cmath>
 #include <cstring>
+#include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include <fmt/core.h>
@@ -19,6 +24,14 @@
 namespace storage = seeker::storage;
 
 namespace {
+
+/* ----------------------------- Argument Handling ----------------------------- */
+
+/// Bytes in one MB as --size counts it (decimal megabytes).
+constexpr std::size_t BYTES_PER_MB = 1000000;
+
+/// Largest --size whose byte count fits in std::size_t.
+constexpr std::size_t MAX_SIZE_MB = std::numeric_limits<std::size_t>::max() / BYTES_PER_MB;
 
 /// Argument keys.
 enum ArgKey : std::uint8_t {
@@ -45,16 +58,49 @@ seeker::helpers::args::ArgMap buildArgMap() {
   map[ARG_SIZE] = {
       "--size", 1, false,
       "Upper bound on data written per benchmark, in MB of 10^6 bytes (default: 64 MiB)"};
-  map[ARG_ITERS] = {"--iters", 1, false, "Iterations for latency tests (default: 1000)"};
+  map[ARG_ITERS] = {"--iters", 1, false,
+                    "Iterations for latency tests, at least 1 (default: 1000)"};
   map[ARG_BUDGET] = {
       "--budget", 1, false,
-      "Time budget per benchmark in seconds, setup and syncs included (default: 30)"};
+      "Time budget per benchmark in seconds, more than 0, setup and syncs included (default: 30)"};
   map[ARG_DIRECT] = {"--direct", 0, false, "Use O_DIRECT to bypass page cache"};
   map[ARG_QUICK] = {
       "--quick", 0, false,
       "Quick mode: 8 MB of data, 100 iterations, 10 s budget; overrides --size, --iters "
       "and --budget"};
   return map;
+}
+
+/// Parse a whole decimal count: digits only, with no sign, spaces or
+/// trailing text, at least 1 and within std::size_t.
+std::optional<std::size_t> parseCount(std::string_view text) noexcept {
+  std::size_t value = 0;
+  const char* const END = text.data() + text.size();
+  const auto [PTR, EC] = std::from_chars(text.data(), END, value);
+  if (EC != std::errc{} || PTR != END || value == 0) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+/// Parse a decimal number of seconds with no sign, spaces or trailing text;
+/// it must be finite and more than 0.
+std::optional<double> parseSeconds(std::string_view text) noexcept {
+  double value = 0.0;
+  const char* const END = text.data() + text.size();
+  const auto [PTR, EC] = std::from_chars(text.data(), END, value);
+  if (EC != std::errc{} || PTR != END || !std::isfinite(value) || !(value > 0.0)) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+/// Report an option value that does not parse the way the tool reports its
+/// other argument errors: the message on stderr, then the usage text.
+void printValueError(const char* progName, const seeker::helpers::args::ArgMap& map,
+                     std::string_view flag, std::string_view value, std::string_view expected) {
+  fmt::print(stderr, "Error: Invalid value for {}: '{}' (expected {})\n\n", flag, value, expected);
+  seeker::helpers::args::printUsage(progName, DESCRIPTION, map);
 }
 
 /* ----------------------------- Output Helpers ----------------------------- */
@@ -223,16 +269,36 @@ int main(int argc, char* argv[]) {
     }
 
     if (pargs.count(ARG_SIZE) != 0) {
-      const int MB = std::stoi(std::string(pargs[ARG_SIZE][0]));
-      config.dataSize = static_cast<std::size_t>(MB) * 1000000ULL;
+      const std::string_view TEXT = pargs[ARG_SIZE][0];
+      const std::optional<std::size_t> MB = parseCount(TEXT);
+      if (!MB || *MB > MAX_SIZE_MB) {
+        printValueError(argv[0], ARG_MAP, "--size", TEXT,
+                        fmt::format("a whole number of MB from 1 to {}", MAX_SIZE_MB));
+        return 1;
+      }
+      config.dataSize = *MB * BYTES_PER_MB;
     }
 
     if (pargs.count(ARG_ITERS) != 0) {
-      config.iterations = static_cast<std::size_t>(std::stoi(std::string(pargs[ARG_ITERS][0])));
+      const std::string_view TEXT = pargs[ARG_ITERS][0];
+      const std::optional<std::size_t> ITERS = parseCount(TEXT);
+      if (!ITERS) {
+        printValueError(
+            argv[0], ARG_MAP, "--iters", TEXT,
+            fmt::format("a whole number from 1 to {}", std::numeric_limits<std::size_t>::max()));
+        return 1;
+      }
+      config.iterations = *ITERS;
     }
 
     if (pargs.count(ARG_BUDGET) != 0) {
-      config.timeBudgetSec = std::stod(std::string(pargs[ARG_BUDGET][0]));
+      const std::string_view TEXT = pargs[ARG_BUDGET][0];
+      const std::optional<double> SECONDS = parseSeconds(TEXT);
+      if (!SECONDS) {
+        printValueError(argv[0], ARG_MAP, "--budget", TEXT, "a number of seconds more than 0");
+        return 1;
+      }
+      config.timeBudgetSec = *SECONDS;
     }
 
     if (pargs.count(ARG_DIRECT) != 0) {
@@ -241,7 +307,7 @@ int main(int argc, char* argv[]) {
 
     if (pargs.count(ARG_QUICK) != 0) {
       // Quick mode: small data, few iterations
-      config.dataSize = 8 * 1000000ULL; // 8 MB
+      config.dataSize = 8 * BYTES_PER_MB;
       config.iterations = 100;
       config.timeBudgetSec = 10.0;
     }

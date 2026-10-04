@@ -97,6 +97,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the machine while dropping no cached pages
 - The random-read benchmark measured the page cache: it read back the file its
   setup had just written, so its latency was memory's, not the device's
+- storage-bench aborted (exit 134) on a `--budget`, `--size` or `--iters` value
+  that was not a number or did not fit, ran on with trailing text ignored
+  (`--budget 1.5x`, `--iters 1e3`), wrapped negative values to enormous ones
+  (`--size -5`), accepted `nan` and `inf` budgets, and blamed the directory
+  for `--size 0` and `--iters 0`. Each is an argument error naming the option
+  and the value, followed by the usage text, exit 1
 - The storage-bench README promised a ~10 second quick run, privileges for
   `--direct` and large sequential I/O; the sequential benchmarks issue 4 KiB
   operations
