@@ -74,6 +74,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The sequential-read benchmark syncs only its own file and asks the kernel to
   drop that file's cached pages before reading (best effort), so its throughput
   is the device's where the kernel honours the request (not on tmpfs)
+- The random-read benchmark asks the kernel to drop its file's cached pages
+  after setup (best effort), so its latency is the device's where the kernel
+  honours the request (not on tmpfs)
 
 ### Fixed
 
@@ -92,6 +95,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the budget started
 - The sequential-read benchmark called `sync()`, flushing every filesystem on
   the machine while dropping no cached pages
+- The random-read benchmark measured the page cache: it read back the file its
+  setup had just written, so its latency was memory's, not the device's
 - The storage-bench README promised a ~10 second quick run, privileges for
   `--direct` and large sequential I/O; the sequential benchmarks issue 4 KiB
   operations

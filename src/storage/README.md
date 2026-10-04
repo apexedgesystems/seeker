@@ -664,8 +664,9 @@ most `SYNC_INTERVAL_BYTES`, and `runBenchSuite()` within five times that.
   throughput includes the cost of making the data durable. Setup time counts
   against the budget, not against `elapsedSec`.
 - **Own file only:** a benchmark syncs only its own file. Before the
-  sequential read it asks the kernel to drop that file's cached pages; this is
-  best effort, and on tmpfs, for one, the reads still come from memory.
+  sequential and random reads it asks the kernel to drop that file's cached
+  pages; this is best effort, and on tmpfs, for one, the reads still come from
+  memory.
 
 #### Usage
 
@@ -697,7 +698,7 @@ if (suite.allSuccess()) {
 | Sequential Write | Sustained write throughput                | MB/s             |
 | Sequential Read  | Sustained read throughput (may hit cache) | MB/s             |
 | fsync Latency    | Time to persist data to storage           | p99 latency (us) |
-| Random Read 4K   | Small random read latency                 | avg latency (us) |
+| Random Read 4K   | Small random read latency (may hit cache) | avg latency (us) |
 | Random Write 4K  | Small random write latency                | avg latency (us) |
 
 ---

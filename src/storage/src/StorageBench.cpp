@@ -142,6 +142,12 @@ inline void makeTempPath(char* pathBuf, std::size_t bufSize, const char* dir) no
 /// Remove file if it exists.
 inline void removeFile(const char* path) noexcept { ::unlink(path); }
 
+/// Ask the kernel to evict a file's cached pages so later reads reach the
+/// device. Only clean pages can go, so call it after the data is synced.
+/// Best effort: the kernel may keep pages (tmpfs keeps all of them), and
+/// reads of those are served from memory.
+inline void dropCachedPages(int fd) noexcept { ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); }
+
 /// Open file with specified flags. Returns fd or -1 on error.
 inline int openFile(const char* path, int flags, bool directIo) noexcept {
   int effectiveFlags = flags | O_CLOEXEC;
@@ -375,10 +381,7 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
   const WriteTally SETUP =
       writeSequential(fd, buf, config.ioSize, config.dataSize, DEADLINES.setupNs, true);
 
-  // Ask the kernel to evict this file's now-clean pages so the read phase
-  // reaches the device. Best effort: the kernel may keep pages (tmpfs keeps
-  // all of them), and reads of those are served from memory.
-  ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+  dropCachedPages(fd);
   ::close(fd);
 
   // Read phase (timed): the bytes the setup wrote, until the budget runs out
@@ -535,6 +538,8 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
     std::free(buf);
     return result;
   }
+
+  dropCachedPages(fd);
 
   // Random read phase over the blocks the setup wrote
   std::mt19937_64 rng(42); // Fixed seed for reproducibility

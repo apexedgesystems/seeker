@@ -188,9 +188,12 @@ struct BenchSuite {
  * @return Benchmark result with latency statistics.
  * @note NOT RT-safe: Performs random file I/O.
  *
- * Setup writes up to dataSize bytes within half the time budget and syncs
- * them; the measured phase then performs random 4K reads within the bytes
- * actually written, until iterations are done or the budget runs out.
+ * Setup writes up to dataSize bytes within half the time budget, syncs them
+ * and asks the kernel to drop the file's cached pages so the reads reach the
+ * device. That request is best effort: where the kernel keeps the pages
+ * (tmpfs, for one), reads come from memory. The measured phase then performs
+ * random 4K reads within the bytes actually written, until iterations are
+ * done or the budget runs out.
  * Measures read latency distribution.
  */
 [[nodiscard]] BenchResult runRandReadBench(const BenchConfig& config) noexcept;

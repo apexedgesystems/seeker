@@ -141,11 +141,13 @@ $ storage-bench --quick --json
 | Sequential Write | 4 KiB sequential writes, synced every 4 MiB | Throughput (MB/s) |
 | Sequential Read  | 4 KiB sequential reads (may hit the cache)  | Throughput (MB/s) |
 | fsync Latency    | Durability commit latency                   | p99 latency (us)  |
-| Random Read 4K   | Small random reads                          | Avg latency (us)  |
+| Random Read 4K   | Small random reads (may hit the cache)      | Avg latency (us)  |
 | Random Write 4K  | Small random writes with fsync              | Avg latency (us)  |
 
 Sequential-write throughput includes its syncs: it is the rate at which data is
-written and synced, not the rate of filling the page cache.
+written and synced, not the rate of filling the page cache. Both read
+benchmarks first ask the kernel to drop their file's cached pages, so where it
+does (not on tmpfs) they measure the device.
 
 ---
 
