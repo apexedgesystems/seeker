@@ -592,7 +592,7 @@ inline constexpr std::size_t SYNC_INTERVAL_BYTES = 4 * 1024 * 1024; // 4 MiB
 struct BenchConfig {
   std::array<char, BENCH_PATH_SIZE> directory{};
   std::size_t ioSize{DEFAULT_IO_SIZE};       ///< I/O operation size
-  std::size_t dataSize{DEFAULT_DATA_SIZE};   ///< Upper bound on data written per benchmark
+  std::size_t dataSize{DEFAULT_DATA_SIZE};   ///< Most data per benchmark, in whole blocks
   std::size_t iterations{DEFAULT_ITERATIONS}; ///< Iterations for latency tests
   double timeBudgetSec{MAX_BENCH_TIME_SEC};   ///< Wall-time budget per benchmark (seconds)
   bool useDirectIo{false};  ///< O_DIRECT to bypass page cache
@@ -651,14 +651,21 @@ struct BenchSuite {
 
 `timeBudgetSec` bounds each benchmark's total wall time, setup and every sync
 included: a benchmark returns within its budget plus one I/O and one sync of at
-most `SYNC_INTERVAL_BYTES`, and `runBenchSuite()` within five times that.
+most the larger of `SYNC_INTERVAL_BYTES` and `ioSize`, and `runBenchSuite()`
+within five times that.
 
 - **Setup counts:** sequential read, random read and random write first write
   their file, using at most half the budget, then run on the bytes actually
-  written. `dataSize` is an upper bound, not a guarantee.
+  written.
+- **Whole blocks:** benchmarks write whole blocks (`ioSize`, or 4 KiB for the
+  random benchmarks' files), never past `dataSize`; the budget can stop them
+  first.
 - **Bounded syncs:** setup writes, and measured sequential writes with
-  `useFsync`, are synced every `SYNC_INTERVAL_BYTES`, so no sync flushes more
-  than that. Random writes with `useFsync` are synced after each write.
+  `useFsync`, are synced before the unsynced bytes would pass
+  `SYNC_INTERVAL_BYTES`, so no sync flushes more than the larger of
+  `SYNC_INTERVAL_BYTES` and `ioSize` (a larger block is written whole and
+  synced on its own). Random writes with `useFsync` are synced after each
+  write.
 - **What the numbers cover:** `elapsedSec` and the throughput cover the
   measured phase including its syncs; with `useFsync`, sequential-write
   throughput includes the cost of making the data durable. Setup time counts
@@ -675,7 +682,7 @@ using namespace seeker::storage;
 
 BenchConfig config;
 config.setDirectory("/tmp");
-config.dataSize = 64 * 1024 * 1024;  // 64 MiB, an upper bound
+config.dataSize = 64 * 1024 * 1024;  // at most 64 MiB, in whole blocks
 config.iterations = 100;
 config.timeBudgetSec = 10.0;         // per benchmark, setup and syncs included
 

@@ -90,17 +90,27 @@ struct WriteTally {
   std::size_t ops{0};
 };
 
-/// Append blockSize-byte writes of buf to fd until limit bytes are written, a
-/// write or sync fails, or deadlineNs passes. With syncData, fdatasync runs
-/// every SYNC_INTERVAL_BYTES and once at the end, so no sync flushes more than
-/// SYNC_INTERVAL_BYTES. The deadline is checked before each write, which is
-/// also after each sync: the call ends at most one write and one sync past it.
+/// Append whole blockSize-byte writes of buf to fd while another block fits
+/// within limit, so bytes written never pass limit; stop early if a write or
+/// sync fails or deadlineNs passes. With syncData, fdatasync runs before any
+/// write that would take the unsynced bytes past SYNC_INTERVAL_BYTES, and once
+/// at the end, so no sync flushes more than the larger of SYNC_INTERVAL_BYTES
+/// and blockSize (a larger block is written whole and synced on its own). The
+/// deadline is checked before each write, which is also after each sync: the
+/// call ends at most one write and one such sync past it.
 inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize, std::size_t limit,
                                   std::uint64_t deadlineNs, bool syncData) noexcept {
   WriteTally tally{};
   std::size_t unsynced = 0;
 
-  while (tally.bytes < limit) {
+  while (blockSize <= limit - tally.bytes) {
+    if (syncData && unsynced > 0 && unsynced + blockSize > SYNC_INTERVAL_BYTES) {
+      if (::fdatasync(fd) != 0) {
+        return tally;
+      }
+      unsynced = 0;
+    }
+
     if (getTimeNs() > deadlineNs) {
       break;
     }
@@ -113,13 +123,6 @@ inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize
     tally.bytes += static_cast<std::size_t>(WRITTEN);
     unsynced += static_cast<std::size_t>(WRITTEN);
     ++tally.ops;
-
-    if (syncData && unsynced >= SYNC_INTERVAL_BYTES) {
-      if (::fdatasync(fd) != 0) {
-        return tally;
-      }
-      unsynced = 0;
-    }
   }
 
   if (syncData && unsynced > 0) {

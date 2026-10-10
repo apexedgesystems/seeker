@@ -14,7 +14,7 @@
  * Design goals:
  *  - Bounded execution time: a benchmark's wall time, setup and syncs
  *    included, stays within its time budget plus one I/O and one sync of at
- *    most SYNC_INTERVAL_BYTES
+ *    most the larger of SYNC_INTERVAL_BYTES and ioSize
  *  - Configurable I/O sizes and patterns
  *  - Minimal setup/teardown overhead
  *  - Syncs only the benchmark's own file; no system-wide sync
@@ -50,9 +50,10 @@ inline constexpr std::size_t DEFAULT_ITERATIONS = 1000;
 inline constexpr double MAX_BENCH_TIME_SEC = 30.0;
 
 /// Sync interval for synced benchmark writes (4 MiB): setup writes always,
-/// measured sequential writes when useFsync is set. No sync flushes more
-/// than this, which bounds how long one sync takes on slow media such as SD
-/// cards.
+/// measured sequential writes when useFsync is set. A write that would take
+/// the unsynced bytes past this is preceded by a sync, so no sync flushes more
+/// than the larger of this and the I/O size; that bounds how long one sync
+/// takes on slow media such as SD cards.
 inline constexpr std::size_t SYNC_INTERVAL_BYTES = 4 * 1024 * 1024;
 
 /* ----------------------------- BenchConfig ----------------------------- */
@@ -61,20 +62,24 @@ inline constexpr std::size_t SYNC_INTERVAL_BYTES = 4 * 1024 * 1024;
  * @brief Configuration for storage benchmarks.
  *
  * Time budget: each benchmark's wall time, setup and every sync included, is
- * at most timeBudgetSec plus one I/O and one sync of at most
- * SYNC_INTERVAL_BYTES; a suite run is at most five times that. The
- * sequential-read, random-read and random-write benchmarks first write their
- * file within half the budget and then run on the bytes actually written, so
- * dataSize is an upper bound.
+ * at most timeBudgetSec plus one I/O and one sync of at most the larger of
+ * SYNC_INTERVAL_BYTES and ioSize; a suite run is at most five times that.
+ * The sequential-read, random-read and random-write benchmarks first write
+ * their file within half the budget and then run on the bytes actually
+ * written.
  *
- * useFsync syncs the measured writes: sequential writes every
- * SYNC_INTERVAL_BYTES and once at the end, random writes after each write.
- * Setup writes are always synced.
+ * Data size: benchmarks write whole blocks (ioSize, or 4K for the random
+ * benchmarks' files) and never past dataSize; the budget can stop them first.
+ *
+ * useFsync syncs the measured writes: sequential writes before the unsynced
+ * bytes would pass SYNC_INTERVAL_BYTES (a larger block is synced on its own)
+ * and once at the end, random writes after each write. Setup writes are
+ * always synced.
  */
 struct BenchConfig {
   std::array<char, BENCH_PATH_SIZE> directory{}; ///< Directory to run benchmarks in
   std::size_t ioSize{DEFAULT_IO_SIZE};           ///< I/O block size in bytes
-  std::size_t dataSize{DEFAULT_DATA_SIZE};       ///< Upper bound on data written per benchmark
+  std::size_t dataSize{DEFAULT_DATA_SIZE};       ///< Most data per benchmark, in whole blocks
   std::size_t iterations{DEFAULT_ITERATIONS};    ///< Iterations for latency tests
   double timeBudgetSec{MAX_BENCH_TIME_SEC};      ///< Wall-time budget per benchmark (seconds)
   bool useDirectIo{false};                       ///< Use O_DIRECT (bypass page cache)
@@ -147,11 +152,12 @@ struct BenchSuite {
  * @return Benchmark result with throughput metrics.
  * @note NOT RT-safe: Performs file I/O.
  *
- * Creates a temporary file and writes up to dataSize bytes in ioSize chunks
- * until the time budget runs out. With useFsync it syncs every
- * SYNC_INTERVAL_BYTES and once at the end, inside the measured time, so the
- * throughput includes the cost of making the data durable. File is deleted
- * after benchmark.
+ * Creates a temporary file and writes whole ioSize blocks, never past
+ * dataSize, until the time budget runs out. With useFsync it syncs before the
+ * unsynced bytes would pass SYNC_INTERVAL_BYTES (a larger block is synced on
+ * its own) and once at the end, inside the measured time, so the throughput
+ * includes the cost of making the data durable. File is deleted after
+ * benchmark.
  */
 [[nodiscard]] BenchResult runSeqWriteBench(const BenchConfig& config) noexcept;
 
@@ -161,11 +167,12 @@ struct BenchSuite {
  * @return Benchmark result with throughput metrics.
  * @note NOT RT-safe: Performs file I/O.
  *
- * Setup writes up to dataSize bytes within half the time budget, syncs them
- * and asks the kernel to drop the file's cached pages so the reads reach the
- * device. That request is best effort: where the kernel keeps the pages
- * (tmpfs, for one), reads come from memory. The measured phase then reads
- * the bytes actually written, sequentially, until the budget runs out.
+ * Setup writes whole ioSize blocks, never past dataSize, within half the time
+ * budget, syncs them and asks the kernel to drop the file's cached pages so
+ * the reads reach the device. That request is best effort: where the kernel
+ * keeps the pages (tmpfs, for one), reads come from memory. The measured
+ * phase then reads the bytes actually written, sequentially, until the
+ * budget runs out.
  * Measures read throughput only (excludes setup write time).
  */
 [[nodiscard]] BenchResult runSeqReadBench(const BenchConfig& config) noexcept;
@@ -188,12 +195,12 @@ struct BenchSuite {
  * @return Benchmark result with latency statistics.
  * @note NOT RT-safe: Performs random file I/O.
  *
- * Setup writes up to dataSize bytes within half the time budget, syncs them
- * and asks the kernel to drop the file's cached pages so the reads reach the
- * device. That request is best effort: where the kernel keeps the pages
- * (tmpfs, for one), reads come from memory. The measured phase then performs
- * random 4K reads within the bytes actually written, until iterations are
- * done or the budget runs out.
+ * Setup writes whole 4K blocks, never past dataSize, within half the time
+ * budget, syncs them and asks the kernel to drop the file's cached pages so
+ * the reads reach the device. That request is best effort: where the kernel
+ * keeps the pages (tmpfs, for one), reads come from memory. The measured
+ * phase then performs random 4K reads within the bytes actually written,
+ * until iterations are done or the budget runs out.
  * Measures read latency distribution.
  */
 [[nodiscard]] BenchResult runRandReadBench(const BenchConfig& config) noexcept;
@@ -204,10 +211,10 @@ struct BenchSuite {
  * @return Benchmark result with latency statistics.
  * @note NOT RT-safe: Performs random file I/O.
  *
- * Setup writes up to dataSize bytes within half the time budget and syncs
- * them; the measured phase then performs random 4K writes within the bytes
- * actually written, each followed by fdatasync when useFsync is set, until
- * iterations are done or the budget runs out.
+ * Setup writes whole 4K blocks, never past dataSize, within half the time
+ * budget and syncs them; the measured phase then performs random 4K writes
+ * within the bytes actually written, each followed by fdatasync when useFsync
+ * is set, until iterations are done or the budget runs out.
  * Measures write+sync latency distribution.
  */
 [[nodiscard]] BenchResult runRandWriteBench(const BenchConfig& config) noexcept;

@@ -71,6 +71,10 @@ constexpr std::size_t UNREACHABLE_ITERATIONS = 100000000;
 /// Budget that stops every setup partway in the cleanup test.
 constexpr double CUT_SETUP_BUDGET_SEC = 0.2;
 
+/// A data size that is not a whole number of 4 KiB blocks: 244 blocks
+/// (999424 bytes) fit, with 576 bytes to spare.
+constexpr std::size_t NON_MULTIPLE_DATA_SIZE = 1000000;
+
 /// Signature shared by the single-benchmark functions.
 using BenchFn = BenchResult (*)(const BenchConfig&) noexcept;
 
@@ -342,8 +346,8 @@ TEST(SeqWriteBenchTest, TransfersExpectedData) {
   const BenchResult RESULT = runSeqWriteBench(config);
 
   EXPECT_TRUE(RESULT.success);
-  // Should transfer approximately the requested amount (may be slightly more due to alignment)
-  EXPECT_GE(RESULT.bytesTransferred, config.dataSize);
+  // 32 KiB is a whole number of 4 KiB blocks, so all of it is written
+  EXPECT_EQ(RESULT.bytesTransferred, config.dataSize);
 }
 
 /* ----------------------------- Sequential Read Benchmark Tests ----------------------------- */
@@ -612,4 +616,31 @@ TEST(EdgeCaseTest, SingleIteration) {
   const BenchResult RESULT = runFsyncBench(config);
   EXPECT_TRUE(RESULT.success);
   EXPECT_EQ(RESULT.operations, 1U);
+}
+
+/** @test A data size that is not a whole number of blocks is written in whole blocks only. */
+TEST(EdgeCaseTest, NonMultipleDataSizeWritesWholeBlocks) {
+  if (!tmpIsWritable()) {
+    GTEST_SKIP() << "/tmp is not writable";
+  }
+
+  BenchConfig config = makeQuickConfig();
+  config.ioSize = 4096;
+  config.dataSize = NON_MULTIPLE_DATA_SIZE;
+  const std::size_t WHOLE_BLOCK_BYTES = (config.dataSize / config.ioSize) * config.ioSize;
+
+  // The sequential write, and the sequential read, whose read phase covers
+  // exactly what its setup wrote
+  const std::array<std::pair<const char*, BenchFn>, 2> BENCHES{{
+      {"runSeqWriteBench", &runSeqWriteBench},
+      {"runSeqReadBench", &runSeqReadBench},
+  }};
+  for (const auto& [name, bench] : BENCHES) {
+    SCOPED_TRACE(name);
+    const BenchResult RESULT = bench(config);
+
+    EXPECT_TRUE(RESULT.success);
+    EXPECT_LE(RESULT.bytesTransferred, config.dataSize);
+    EXPECT_EQ(RESULT.bytesTransferred, WHOLE_BLOCK_BYTES);
+  }
 }

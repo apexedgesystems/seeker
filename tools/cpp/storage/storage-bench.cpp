@@ -57,7 +57,8 @@ seeker::helpers::args::ArgMap buildArgMap() {
   map[ARG_DIR] = {"--dir", 1, false, "Directory to run benchmarks in (default: /tmp)"};
   map[ARG_SIZE] = {
       "--size", 1, false,
-      "Upper bound on data written per benchmark, in MB of 10^6 bytes (default: 64 MiB)"};
+      "Most data written per benchmark, in MB of 10^6 bytes; whole 4 KiB blocks, never past it "
+      "(default: 64 MiB)"};
   map[ARG_ITERS] = {"--iters", 1, false,
                     "Iterations for latency tests, at least 1 (default: 1000)"};
   map[ARG_BUDGET] = {

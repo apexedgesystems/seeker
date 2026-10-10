@@ -108,8 +108,9 @@ $ storage-iostat --count 3 --json
 
 Bounded storage benchmark runner for performance characterization. Each of the
 five benchmarks stops at its time budget (`--budget`, default 30 s), setup and
-syncs included, so a run takes at most about five budgets. `--size` is an upper
-bound on the data each benchmark writes; a tight budget stops it first.
+syncs included, so a run takes at most about five budgets. `--size` caps the
+data each benchmark writes: whole 4 KiB blocks, never past it; a tight budget
+stops it first.
 
 ```bash
 # Quick run: 8 MB, 100 iterations, 10 s budget per benchmark
