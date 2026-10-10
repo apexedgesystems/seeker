@@ -666,6 +666,9 @@ within five times that.
   `SYNC_INTERVAL_BYTES` and `ioSize` (a larger block is written whole and
   synced on its own). Random writes with `useFsync` are synced after each
   write.
+- **Failed syncs:** if a sync of the sequential write, or of the file a
+  benchmark writes before measuring, fails (an I/O error, say), the benchmark
+  fails: `success` is false, no figures are reported, and the file is removed.
 - **What the numbers cover:** `elapsedSec` and the throughput cover the
   measured phase including its syncs; with `useFsync`, sequential-write
   throughput includes the cost of making the data durable. Setup time counts

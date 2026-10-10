@@ -100,7 +100,9 @@ struct BenchConfig {
  *
  * elapsedSec and the throughput cover the measured phase, including the syncs
  * it issues. A setup that writes the benchmark's file first counts against
- * the time budget but not against elapsedSec.
+ * the time budget but not against elapsedSec. If a sync of the sequential
+ * write, or of the file a benchmark writes before measuring, fails, the result
+ * is a failure: success is false and no figures are reported.
  */
 struct BenchResult {
   bool success{false};             ///< Benchmark completed successfully
@@ -156,8 +158,8 @@ struct BenchSuite {
  * dataSize, until the time budget runs out. With useFsync it syncs before the
  * unsynced bytes would pass SYNC_INTERVAL_BYTES (a larger block is synced on
  * its own) and once at the end, inside the measured time, so the throughput
- * includes the cost of making the data durable. File is deleted after
- * benchmark.
+ * includes the cost of making the data durable; a failed sync fails the
+ * benchmark. File is deleted after benchmark.
  */
 [[nodiscard]] BenchResult runSeqWriteBench(const BenchConfig& config) noexcept;
 

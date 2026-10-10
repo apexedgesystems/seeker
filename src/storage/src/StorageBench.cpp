@@ -84,10 +84,12 @@ inline BenchDeadlines startBudget(double budgetSec) noexcept {
   return deadlines;
 }
 
-/// Bytes and write calls completed by writeSequential().
+/// Bytes and write calls completed by writeSequential(), and whether one of
+/// its syncs failed, which leaves the written data not known to be durable.
 struct WriteTally {
   std::size_t bytes{0};
   std::size_t ops{0};
+  bool syncFailed{false};
 };
 
 /// Append whole blockSize-byte writes of buf to fd while another block fits
@@ -95,9 +97,10 @@ struct WriteTally {
 /// sync fails or deadlineNs passes. With syncData, fdatasync runs before any
 /// write that would take the unsynced bytes past SYNC_INTERVAL_BYTES, and once
 /// at the end, so no sync flushes more than the larger of SYNC_INTERVAL_BYTES
-/// and blockSize (a larger block is written whole and synced on its own). The
-/// deadline is checked before each write, which is also after each sync: the
-/// call ends at most one write and one such sync past it.
+/// and blockSize (a larger block is written whole and synced on its own); a
+/// failed sync, interval or final, sets syncFailed. The deadline is checked
+/// before each write, which is also after each sync: the call ends at most
+/// one write and one such sync past it.
 inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize, std::size_t limit,
                                   std::uint64_t deadlineNs, bool syncData) noexcept {
   WriteTally tally{};
@@ -106,6 +109,7 @@ inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize
   while (blockSize <= limit - tally.bytes) {
     if (syncData && unsynced > 0 && unsynced + blockSize > SYNC_INTERVAL_BYTES) {
       if (::fdatasync(fd) != 0) {
+        tally.syncFailed = true;
         return tally;
       }
       unsynced = 0;
@@ -125,8 +129,8 @@ inline WriteTally writeSequential(int fd, const void* buf, std::size_t blockSize
     ++tally.ops;
   }
 
-  if (syncData && unsynced > 0) {
-    ::fdatasync(fd);
+  if (syncData && unsynced > 0 && ::fdatasync(fd) != 0) {
+    tally.syncFailed = true;
   }
   return tally;
 }
@@ -346,6 +350,11 @@ BenchResult runSeqWriteBench(const BenchConfig& config) noexcept {
   removeFile(tempPath.data());
   std::free(buf);
 
+  // A failed sync leaves the written data unconfirmed: no throughput to report
+  if (TALLY.syncFailed) {
+    return result;
+  }
+
   result.success = (TALLY.bytes > 0);
   result.elapsedSec = nsToSec(END - START);
   result.operations = TALLY.ops;
@@ -383,6 +392,14 @@ BenchResult runSeqReadBench(const BenchConfig& config) noexcept {
   std::memset(buf, 0x55, config.ioSize);
   const WriteTally SETUP =
       writeSequential(fd, buf, config.ioSize, config.dataSize, DEADLINES.setupNs, true);
+
+  // A setup whose sync failed would measure data not known to be on the device
+  if (SETUP.syncFailed) {
+    ::close(fd);
+    removeFile(tempPath.data());
+    std::free(buf);
+    return result;
+  }
 
   dropCachedPages(fd);
   ::close(fd);
@@ -534,8 +551,9 @@ BenchResult runRandReadBench(const BenchConfig& config) noexcept {
   const WriteTally SETUP =
       writeSequential(fd, buf, RAND_BLOCK, config.dataSize, DEADLINES.setupNs, true);
 
+  // Too few blocks to sample, or a setup whose sync failed: no measurement
   const std::size_t NUM_BLOCKS = SETUP.bytes / RAND_BLOCK;
-  if (NUM_BLOCKS < 2) {
+  if (SETUP.syncFailed || NUM_BLOCKS < 2) {
     ::close(fd);
     removeFile(tempPath.data());
     std::free(buf);
@@ -625,8 +643,9 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
   const WriteTally SETUP =
       writeSequential(fd, buf, RAND_BLOCK, config.dataSize, DEADLINES.setupNs, true);
 
+  // Too few blocks to sample, or a setup whose sync failed: no measurement
   const std::size_t NUM_BLOCKS = SETUP.bytes / RAND_BLOCK;
-  if (NUM_BLOCKS < 2) {
+  if (SETUP.syncFailed || NUM_BLOCKS < 2) {
     ::close(fd);
     removeFile(tempPath.data());
     std::free(buf);

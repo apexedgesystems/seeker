@@ -103,6 +103,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A `dataSize` that was not a whole number of blocks was rounded up: the
   sequential benchmarks wrote and read one block past it (`--size 1`, 1000000
   bytes, transferred 1003520)
+- A failed sync went unnoticed: the sequential write reported success after its
+  sync failed, and the read and random benchmarks measured a file whose setup
+  sync had failed. Such a benchmark fails (`success` false) and removes its
+  file
 - storage-bench aborted (exit 134) on a `--budget`, `--size` or `--iters` value
   that was not a number or did not fit, ran on with trailing text ignored
   (`--budget 1.5x`, `--iters 1e3`), wrapped negative values to enormous ones
