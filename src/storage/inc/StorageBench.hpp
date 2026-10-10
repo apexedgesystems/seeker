@@ -100,9 +100,9 @@ struct BenchConfig {
  *
  * elapsedSec and the throughput cover the measured phase, including the syncs
  * it issues. A setup that writes the benchmark's file first counts against
- * the time budget but not against elapsedSec. If a sync of the sequential
- * write, or of the file a benchmark writes before measuring, fails, the result
- * is a failure: success is false and no figures are reported.
+ * the time budget but not against elapsedSec. If any sync a benchmark issues
+ * fails (in its setup or in its measured phase), the result is a failure:
+ * success is false and no figures are reported.
  */
 struct BenchResult {
   bool success{false};             ///< Benchmark completed successfully
@@ -186,7 +186,7 @@ struct BenchSuite {
  * @note NOT RT-safe: Performs file I/O with sync.
  *
  * Writes small blocks and measures fsync latency for each, until iterations
- * are done or the time budget runs out.
+ * are done or the time budget runs out; a failed fsync fails the benchmark.
  * Provides min/max/avg/p99 latency statistics.
  */
 [[nodiscard]] BenchResult runFsyncBench(const BenchConfig& config) noexcept;
@@ -216,7 +216,8 @@ struct BenchSuite {
  * Setup writes whole 4K blocks, never past dataSize, within half the time
  * budget and syncs them; the measured phase then performs random 4K writes
  * within the bytes actually written, each followed by fdatasync when useFsync
- * is set, until iterations are done or the budget runs out.
+ * is set, until iterations are done or the budget runs out; a failed sync
+ * fails the benchmark.
  * Measures write+sync latency distribution.
  */
 [[nodiscard]] BenchResult runRandWriteBench(const BenchConfig& config) noexcept;

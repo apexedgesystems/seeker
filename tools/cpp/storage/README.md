@@ -148,7 +148,8 @@ $ storage-bench --quick --json
 Sequential-write throughput includes its syncs: it is the rate at which data is
 written and synced, not the rate of filling the page cache. Both read
 benchmarks first ask the kernel to drop their file's cached pages, so where it
-does (not on tmpfs) they measure the device.
+does (not on tmpfs) they measure the device. A sync that fails (an I/O error)
+fails its benchmark: it prints FAILED and the tool exits 1.
 
 ---
 

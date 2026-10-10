@@ -478,6 +478,7 @@ BenchResult runFsyncBench(const BenchConfig& config) noexcept {
   const std::uint64_t START = getTimeNs();
 
   std::size_t ops = 0;
+  bool syncFailed = false;
 
   for (std::size_t i = 0; i < config.iterations; ++i) {
     if (getTimeNs() > DEADLINES.endNs) {
@@ -496,6 +497,7 @@ BenchResult runFsyncBench(const BenchConfig& config) noexcept {
     const std::uint64_t T1 = getTimeNs();
 
     if (RC != 0) {
+      syncFailed = true;
       break;
     }
 
@@ -510,6 +512,11 @@ BenchResult runFsyncBench(const BenchConfig& config) noexcept {
   ::close(FD);
   removeFile(tempPath.data());
   std::free(buf);
+
+  // A failed fsync fails the benchmark: the latencies before it prove nothing
+  if (syncFailed) {
+    return result;
+  }
 
   result.success = (ops > 0);
   result.elapsedSec = nsToSec(END - START);
@@ -663,6 +670,7 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
 
   std::size_t ops = 0;
   std::size_t bytesWritten = 0;
+  bool syncFailed = false;
 
   for (std::size_t i = 0; i < config.iterations; ++i) {
     if (getTimeNs() > DEADLINES.endNs) {
@@ -671,14 +679,17 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
 
     const off_t OFFSET = static_cast<off_t>(dist(rng) * RAND_BLOCK);
 
+    // fdatasync is faster than fsync for data-only sync
     const std::uint64_t T0 = getTimeNs();
     const ssize_t W = ::pwrite(fd, buf, RAND_BLOCK, OFFSET);
-    if (W > 0 && config.useFsync) {
-      ::fdatasync(fd); // fdatasync is faster than fsync for data-only sync
-    }
+    const int SYNC_RC = (W > 0 && config.useFsync) ? ::fdatasync(fd) : 0;
     const std::uint64_t T1 = getTimeNs();
 
     if (W <= 0) {
+      break;
+    }
+    if (SYNC_RC != 0) {
+      syncFailed = true;
       break;
     }
 
@@ -694,6 +705,11 @@ BenchResult runRandWriteBench(const BenchConfig& config) noexcept {
   ::close(fd);
   removeFile(tempPath.data());
   std::free(buf);
+
+  // A failed sync fails the benchmark: the write it followed is not durable
+  if (syncFailed) {
+    return result;
+  }
 
   result.success = (ops > 0);
   result.elapsedSec = nsToSec(END - START);

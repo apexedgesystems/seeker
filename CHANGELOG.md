@@ -107,6 +107,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sync failed, and the read and random benchmarks measured a file whose setup
   sync had failed. Such a benchmark fails (`success` false) and removes its
   file
+- The random-write benchmark counted a write whose `fdatasync` failed as a
+  measured operation, and the fsync benchmark reported success with the
+  iterations completed before a failed `fsync`; both fail the benchmark
 - storage-bench aborted (exit 134) on a `--budget`, `--size` or `--iters` value
   that was not a number or did not fit, ran on with trailing text ignored
   (`--budget 1.5x`, `--iters 1e3`), wrapped negative values to enormous ones
