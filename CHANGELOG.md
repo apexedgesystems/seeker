@@ -24,6 +24,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `KernelInfo::preemptDynamic`; the active mode of a PREEMPT_DYNAMIC kernel is
   read from debugfs or the `preempt=` boot parameter
 - cpu-info and cpu-snapshot print aarch64 features and an `arch` JSON field
+- `SYNC_INTERVAL_BYTES` (4 MiB) in `StorageBench`: synced benchmark writes call
+  `fdatasync` before the unsynced bytes would pass it, so no sync flushes more
+  than 4 MiB or one I/O block, whichever is larger
 
 ### Changed
 
@@ -58,6 +61,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   attributes, and a device with no applicable check gets verdict `UNKNOWN`
 - cpu-info shows threads per core and the frequency range across mixed core
   types
+- `StorageBench` time budget: `timeBudgetSec` bounds each benchmark's wall time,
+  setup and every sync included, to the budget plus one I/O and one sync of at
+  most the larger of `SYNC_INTERVAL_BYTES` and `ioSize` (a suite run to five
+  times that). The sequential-read, random-read and random-write benchmarks
+  write their file within half the budget and run on what was written.
+  Benchmarks write whole blocks, never past `dataSize`. storage-bench `--budget`
+  and `--size` follow the same contract
+- Sequential write with `useFsync` syncs inside the measured time before the
+  unsynced bytes would pass `SYNC_INTERVAL_BYTES`, so its throughput is the rate
+  at which data is written and synced in steps of up to 4 MiB (one block, if a
+  block is larger), sync time included. That reads lower than writing
+  everything and syncing once at the end: about 10% lower on an SD card and
+  15 to 25% lower on an NVMe drive (ext4) at the default size
+- The sequential-read benchmark syncs only its own file and asks the kernel to
+  drop that file's cached pages before reading (best effort), so its throughput
+  is the device's where the kernel honours the request (not on tmpfs)
+- The random-read benchmark asks the kernel to drop its file's cached pages
+  after setup (best effort), so its latency is the device's where the kernel
+  honours the request (not on tmpfs)
 
 ### Fixed
 
@@ -70,6 +92,33 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - PREEMPT_DYNAMIC kernels were graded as fully preemptible
 - Systems that report core_id 0 for every core were counted as one core
 - gpu-stat printed `%%` instead of `%`
+- Storage benchmarks overran their time budget by seconds on slow or busy
+  disks: sequential write synced everything it had written after the deadline,
+  and the read and random benchmarks wrote and synced their whole file before
+  the budget started
+- The sequential-read benchmark called `sync()`, flushing every filesystem on
+  the machine while dropping no cached pages
+- The random-read benchmark measured the page cache: it read back the file its
+  setup had just written, so its latency was memory's, not the device's
+- A `dataSize` that was not a whole number of blocks was rounded up: the
+  sequential benchmarks wrote and read one block past it (`--size 1`, 1000000
+  bytes, transferred 1003520)
+- A failed sync went unnoticed: the sequential write reported success after its
+  sync failed, and the read and random benchmarks measured a file whose setup
+  sync had failed. Such a benchmark fails (`success` false) and removes its
+  file
+- The random-write benchmark counted a write whose `fdatasync` failed as a
+  measured operation, and the fsync benchmark reported success with the
+  iterations completed before a failed `fsync`; both fail the benchmark
+- storage-bench aborted (exit 134) on a `--budget`, `--size` or `--iters` value
+  that was not a number or did not fit, ran on with trailing text ignored
+  (`--budget 1.5x`, `--iters 1e3`), wrapped negative values to enormous ones
+  (`--size -5`), accepted `nan` and `inf` budgets, and blamed the directory
+  for `--size 0` and `--iters 0`. Each is an argument error naming the option
+  and the value, followed by the usage text, exit 1
+- The storage-bench README promised a ~10 second quick run, privileges for
+  `--direct` and large sequential I/O; the sequential benchmarks issue 4 KiB
+  operations
 
 ---
 

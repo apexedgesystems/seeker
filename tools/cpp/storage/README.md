@@ -106,10 +106,14 @@ $ storage-iostat --count 3 --json
 
 ## storage-bench
 
-Bounded storage benchmark runner for performance characterization.
+Bounded storage benchmark runner for performance characterization. Each of the
+five benchmarks stops at its time budget (`--budget`, default 30 s), setup and
+syncs included, so a run takes at most about five budgets. `--size` caps the
+data each benchmark writes: whole 4 KiB blocks, never past it; a tight budget
+stops it first.
 
 ```bash
-# Quick test (~10 seconds)
+# Quick run: 8 MB, 100 iterations, 10 s budget per benchmark
 $ storage-bench --quick
 
 # Full benchmark in /tmp
@@ -118,11 +122,14 @@ $ storage-bench
 # Test specific directory
 $ storage-bench --dir /mnt/data --quick
 
-# Bypass page cache (requires privileges)
-$ sudo storage-bench --direct --quick
+# Bypass the page cache with O_DIRECT (the filesystem must support it)
+$ storage-bench --direct --quick
 
 # Custom parameters
 $ storage-bench --size 128 --iters 500 --budget 60
+
+# Tight budget: about 1 s per benchmark whatever the size
+$ storage-bench --size 1024 --budget 1
 
 # JSON output
 $ storage-bench --quick --json
@@ -130,13 +137,19 @@ $ storage-bench --quick --json
 
 **Benchmarks run:**
 
-| Benchmark        | Description                        | Primary Metric    |
-| ---------------- | ---------------------------------- | ----------------- |
-| Sequential Write | Large sequential writes            | Throughput (MB/s) |
-| Sequential Read  | Large sequential reads (may cache) | Throughput (MB/s) |
-| fsync Latency    | Durability commit latency          | p99 latency (us)  |
-| Random Read 4K   | Small random reads                 | Avg latency (us)  |
-| Random Write 4K  | Small random writes with fsync     | Avg latency (us)  |
+| Benchmark        | Description                                 | Primary Metric    |
+| ---------------- | ------------------------------------------- | ----------------- |
+| Sequential Write | 4 KiB sequential writes, synced every 4 MiB | Throughput (MB/s) |
+| Sequential Read  | 4 KiB sequential reads (may hit the cache)  | Throughput (MB/s) |
+| fsync Latency    | Durability commit latency                   | p99 latency (us)  |
+| Random Read 4K   | Small random reads (may hit the cache)      | Avg latency (us)  |
+| Random Write 4K  | Small random writes with fsync              | Avg latency (us)  |
+
+Sequential-write throughput includes its syncs: it is the rate at which data is
+written and synced, not the rate of filling the page cache. Both read
+benchmarks first ask the kernel to drop their file's cached pages, so where it
+does (not on tmpfs) they measure the device. A sync that fails (an I/O error)
+fails its benchmark: it prints FAILED and the tool exits 1.
 
 ---
 
