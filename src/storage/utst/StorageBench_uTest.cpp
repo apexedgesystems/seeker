@@ -4,25 +4,24 @@
  *
  * Notes:
  *  - These tests perform actual I/O operations.
- *  - Tests use /tmp for benchmark files (should exist on all Linux systems).
+ *  - Suites that run benchmarks derive from ScratchTreeTest: each test writes
+ *    its benchmark files in its own directory under testing::TempDir().
  *  - Time-budget tests allow BUDGET_SLACK_SEC past the budget; its comment
  *    records the measurement behind the value.
  *  - Some tests may be slow depending on storage performance.
  */
 
 #include "src/storage/inc/StorageBench.hpp"
+#include "src/helpers/utst/inc/ScratchTree.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <chrono>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <dirent.h>
+#include <filesystem>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -39,6 +38,7 @@ using seeker::storage::runRandReadBench;
 using seeker::storage::runRandWriteBench;
 using seeker::storage::runSeqReadBench;
 using seeker::storage::runSeqWriteBench;
+using seeker::test_support::ScratchTreeTest;
 
 namespace {
 
@@ -109,48 +109,10 @@ std::vector<std::string> listEntries(const char* dir) {
   return names;
 }
 
-/// Private directory under /tmp, removed with anything left in it.
-class ScratchDir {
-public:
-  ScratchDir() {
-    std::snprintf(path_.data(), path_.size(), "/tmp/storagebench_utest_XXXXXX");
-    valid_ = (::mkdtemp(path_.data()) != nullptr);
-  }
-
-  ~ScratchDir() {
-    if (!valid_) {
-      return;
-    }
-    for (const std::string& name : listEntries(path_.data())) {
-      ::unlink((std::string(path_.data()) + "/" + name).c_str());
-    }
-    ::rmdir(path_.data());
-  }
-
-  ScratchDir(const ScratchDir&) = delete;
-  ScratchDir& operator=(const ScratchDir&) = delete;
-
-  [[nodiscard]] bool valid() const { return valid_; }
-  [[nodiscard]] const char* path() const { return path_.data(); }
-
-private:
-  std::array<char, 64> path_{};
-  bool valid_{false};
-};
-
-/// Check if /tmp exists and is writable.
-bool tmpIsWritable() {
-  struct stat st{};
-  if (::stat("/tmp", &st) != 0) {
-    return false;
-  }
-  return S_ISDIR(st.st_mode) && (::access("/tmp", W_OK) == 0);
-}
-
-/// Create a small config for quick tests.
-BenchConfig makeQuickConfig() {
+/// Create a small config for quick tests that run in dir.
+BenchConfig makeQuickConfig(const std::filesystem::path& dir) {
   BenchConfig config{};
-  config.setDirectory("/tmp");
+  config.setDirectory(dir.c_str());
   config.ioSize = 4096;
   config.dataSize = 64 * 1024; // 64 KB for quick tests
   config.iterations = 100;
@@ -162,17 +124,31 @@ BenchConfig makeQuickConfig() {
 
 } // namespace
 
+/* ----------------------------- Fixtures ----------------------------- */
+
+// Suites that need a benchmark directory use their test's scratch tree (root_)
+class BenchConfigTest : public ScratchTreeTest {};
+class SeqWriteBenchTest : public ScratchTreeTest {};
+class SeqReadBenchTest : public ScratchTreeTest {};
+class FsyncBenchTest : public ScratchTreeTest {};
+class RandReadBenchTest : public ScratchTreeTest {};
+class RandWriteBenchTest : public ScratchTreeTest {};
+class BenchSuiteRunTest : public ScratchTreeTest {};
+class TimeBudgetTest : public ScratchTreeTest {};
+class CleanupTest : public ScratchTreeTest {};
+class EdgeCaseTest : public ScratchTreeTest {};
+
 /* ----------------------------- BenchConfig Tests ----------------------------- */
 
 /** @test setDirectory copies path correctly. */
-TEST(BenchConfigTest, SetDirectory) {
+TEST_F(BenchConfigTest, SetDirectory) {
   BenchConfig config{};
   config.setDirectory("/tmp");
   EXPECT_STREQ(config.directory.data(), "/tmp");
 }
 
 /** @test setDirectory handles null. */
-TEST(BenchConfigTest, SetDirectoryNull) {
+TEST_F(BenchConfigTest, SetDirectoryNull) {
   BenchConfig config{};
   config.setDirectory("/tmp");
   config.setDirectory(nullptr);
@@ -180,7 +156,7 @@ TEST(BenchConfigTest, SetDirectoryNull) {
 }
 
 /** @test setDirectory handles long paths. */
-TEST(BenchConfigTest, SetDirectoryLongPath) {
+TEST_F(BenchConfigTest, SetDirectoryLongPath) {
   BenchConfig config{};
 
   // Create a path longer than buffer
@@ -193,36 +169,28 @@ TEST(BenchConfigTest, SetDirectoryLongPath) {
 }
 
 /** @test isValid returns true for valid config. */
-TEST(BenchConfigTest, IsValidWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  const BenchConfig CONFIG = makeQuickConfig();
+TEST_F(BenchConfigTest, IsValidWithValidConfig) {
+  const BenchConfig CONFIG = makeQuickConfig(root_);
   EXPECT_TRUE(CONFIG.isValid());
 }
 
 /** @test isValid returns false for empty directory. */
-TEST(BenchConfigTest, IsValidEmptyDirectory) {
-  BenchConfig config = makeQuickConfig();
+TEST_F(BenchConfigTest, IsValidEmptyDirectory) {
+  BenchConfig config = makeQuickConfig(root_);
   config.directory[0] = '\0';
   EXPECT_FALSE(config.isValid());
 }
 
 /** @test isValid returns false for non-existent directory. */
-TEST(BenchConfigTest, IsValidNonExistentDirectory) {
-  BenchConfig config = makeQuickConfig();
+TEST_F(BenchConfigTest, IsValidNonExistentDirectory) {
+  BenchConfig config = makeQuickConfig(root_);
   config.setDirectory("/nonexistent_dir_xyz_123");
   EXPECT_FALSE(config.isValid());
 }
 
 /** @test isValid returns false for invalid I/O size. */
-TEST(BenchConfigTest, IsValidInvalidIoSize) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(BenchConfigTest, IsValidInvalidIoSize) {
+  BenchConfig config = makeQuickConfig(root_);
 
   config.ioSize = 0;
   EXPECT_FALSE(config.isValid());
@@ -235,12 +203,8 @@ TEST(BenchConfigTest, IsValidInvalidIoSize) {
 }
 
 /** @test isValid returns false when dataSize < ioSize. */
-TEST(BenchConfigTest, IsValidDataSizeTooSmall) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(BenchConfigTest, IsValidDataSizeTooSmall) {
+  BenchConfig config = makeQuickConfig(root_);
   config.ioSize = 4096;
   config.dataSize = 1024;
   EXPECT_FALSE(config.isValid());
@@ -311,19 +275,15 @@ TEST(BenchSuiteTest, ToStringIncludesAll) {
 /* ----------------------------- Sequential Write Benchmark Tests ----------------------------- */
 
 /** @test runSeqWriteBench fails with invalid config. */
-TEST(SeqWriteBenchTest, FailsWithInvalidConfig) {
+TEST_F(SeqWriteBenchTest, FailsWithInvalidConfig) {
   BenchConfig config{}; // Invalid: no directory
   const BenchResult RESULT = runSeqWriteBench(config);
   EXPECT_FALSE(RESULT.success);
 }
 
 /** @test runSeqWriteBench succeeds with valid config. */
-TEST(SeqWriteBenchTest, SucceedsWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  const BenchConfig CONFIG = makeQuickConfig();
+TEST_F(SeqWriteBenchTest, SucceedsWithValidConfig) {
+  const BenchConfig CONFIG = makeQuickConfig(root_);
   const BenchResult RESULT = runSeqWriteBench(CONFIG);
 
   EXPECT_TRUE(RESULT.success);
@@ -334,12 +294,8 @@ TEST(SeqWriteBenchTest, SucceedsWithValidConfig) {
 }
 
 /** @test runSeqWriteBench transfers expected amount of data. */
-TEST(SeqWriteBenchTest, TransfersExpectedData) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(SeqWriteBenchTest, TransfersExpectedData) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = 32 * 1024; // 32 KB
   config.timeBudgetSec = 30.0; // Generous time
 
@@ -353,19 +309,15 @@ TEST(SeqWriteBenchTest, TransfersExpectedData) {
 /* ----------------------------- Sequential Read Benchmark Tests ----------------------------- */
 
 /** @test runSeqReadBench fails with invalid config. */
-TEST(SeqReadBenchTest, FailsWithInvalidConfig) {
+TEST_F(SeqReadBenchTest, FailsWithInvalidConfig) {
   BenchConfig config{};
   const BenchResult RESULT = runSeqReadBench(config);
   EXPECT_FALSE(RESULT.success);
 }
 
 /** @test runSeqReadBench succeeds with valid config. */
-TEST(SeqReadBenchTest, SucceedsWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  const BenchConfig CONFIG = makeQuickConfig();
+TEST_F(SeqReadBenchTest, SucceedsWithValidConfig) {
+  const BenchConfig CONFIG = makeQuickConfig(root_);
   const BenchResult RESULT = runSeqReadBench(CONFIG);
 
   EXPECT_TRUE(RESULT.success);
@@ -377,19 +329,15 @@ TEST(SeqReadBenchTest, SucceedsWithValidConfig) {
 /* ----------------------------- fsync Benchmark Tests ----------------------------- */
 
 /** @test runFsyncBench fails with invalid config. */
-TEST(FsyncBenchTest, FailsWithInvalidConfig) {
+TEST_F(FsyncBenchTest, FailsWithInvalidConfig) {
   BenchConfig config{};
   const BenchResult RESULT = runFsyncBench(config);
   EXPECT_FALSE(RESULT.success);
 }
 
 /** @test runFsyncBench succeeds with valid config. */
-TEST(FsyncBenchTest, SucceedsWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(FsyncBenchTest, SucceedsWithValidConfig) {
+  BenchConfig config = makeQuickConfig(root_);
   config.iterations = 50; // Fewer iterations for fsync (slow)
 
   const BenchResult RESULT = runFsyncBench(config);
@@ -402,12 +350,8 @@ TEST(FsyncBenchTest, SucceedsWithValidConfig) {
 }
 
 /** @test runFsyncBench provides latency statistics. */
-TEST(FsyncBenchTest, ProvidesLatencyStats) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(FsyncBenchTest, ProvidesLatencyStats) {
+  BenchConfig config = makeQuickConfig(root_);
   config.iterations = 100;
 
   const BenchResult RESULT = runFsyncBench(config);
@@ -428,19 +372,15 @@ TEST(FsyncBenchTest, ProvidesLatencyStats) {
 /* ----------------------------- Random Read Benchmark Tests ----------------------------- */
 
 /** @test runRandReadBench fails with invalid config. */
-TEST(RandReadBenchTest, FailsWithInvalidConfig) {
+TEST_F(RandReadBenchTest, FailsWithInvalidConfig) {
   BenchConfig config{};
   const BenchResult RESULT = runRandReadBench(config);
   EXPECT_FALSE(RESULT.success);
 }
 
 /** @test runRandReadBench succeeds with valid config. */
-TEST(RandReadBenchTest, SucceedsWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  const BenchConfig CONFIG = makeQuickConfig();
+TEST_F(RandReadBenchTest, SucceedsWithValidConfig) {
+  const BenchConfig CONFIG = makeQuickConfig(root_);
   const BenchResult RESULT = runRandReadBench(CONFIG);
 
   EXPECT_TRUE(RESULT.success);
@@ -451,19 +391,15 @@ TEST(RandReadBenchTest, SucceedsWithValidConfig) {
 /* ----------------------------- Random Write Benchmark Tests ----------------------------- */
 
 /** @test runRandWriteBench fails with invalid config. */
-TEST(RandWriteBenchTest, FailsWithInvalidConfig) {
+TEST_F(RandWriteBenchTest, FailsWithInvalidConfig) {
   BenchConfig config{};
   const BenchResult RESULT = runRandWriteBench(config);
   EXPECT_FALSE(RESULT.success);
 }
 
 /** @test runRandWriteBench succeeds with valid config. */
-TEST(RandWriteBenchTest, SucceedsWithValidConfig) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(RandWriteBenchTest, SucceedsWithValidConfig) {
+  BenchConfig config = makeQuickConfig(root_);
   config.iterations = 50; // Fewer iterations (random write + sync is slow)
 
   const BenchResult RESULT = runRandWriteBench(config);
@@ -476,12 +412,8 @@ TEST(RandWriteBenchTest, SucceedsWithValidConfig) {
 /* ----------------------------- Benchmark Suite Tests ----------------------------- */
 
 /** @test runBenchSuite runs all benchmarks. */
-TEST(BenchSuiteRunTest, RunsAllBenchmarks) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(BenchSuiteRunTest, RunsAllBenchmarks) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = 32 * 1024; // Very small for quick test
   config.iterations = 20;
 
@@ -496,12 +428,8 @@ TEST(BenchSuiteRunTest, RunsAllBenchmarks) {
 /* ----------------------------- Time Budget Tests ----------------------------- */
 
 /** @test Sequential write with fsync returns within its budget, syncs included. */
-TEST(TimeBudgetTest, RespectsTimeBudget) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(TimeBudgetTest, RespectsTimeBudget) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = UNREACHABLE_WRITE_SIZE;
   config.timeBudgetSec = TEST_BUDGET_SEC;
 
@@ -515,12 +443,8 @@ TEST(TimeBudgetTest, RespectsTimeBudget) {
 }
 
 /** @test Sequential read counts its setup against the budget and reads what setup wrote. */
-TEST(TimeBudgetTest, SeqReadSetupWithinBudget) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(TimeBudgetTest, SeqReadSetupWithinBudget) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = SETUP_HEAVY_DATA_SIZE;
   config.timeBudgetSec = TEST_BUDGET_SEC;
 
@@ -533,12 +457,8 @@ TEST(TimeBudgetTest, SeqReadSetupWithinBudget) {
 }
 
 /** @test Random read and write count their setup against the budget. */
-TEST(TimeBudgetTest, RandomSetupWithinBudget) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(TimeBudgetTest, RandomSetupWithinBudget) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = SETUP_HEAVY_DATA_SIZE;
   config.iterations = UNREACHABLE_ITERATIONS;
   config.timeBudgetSec = TEST_BUDGET_SEC;
@@ -561,16 +481,8 @@ TEST(TimeBudgetTest, RandomSetupWithinBudget) {
 /* ----------------------------- Cleanup Tests ----------------------------- */
 
 /** @test No benchmark leaves a file behind when the budget cuts its setup short. */
-TEST(CleanupTest, NoTempFileAfterBudgetCut) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  const ScratchDir SCRATCH;
-  ASSERT_TRUE(SCRATCH.valid());
-
-  BenchConfig config = makeQuickConfig();
-  config.setDirectory(SCRATCH.path());
+TEST_F(CleanupTest, NoTempFileAfterBudgetCut) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = SETUP_HEAVY_DATA_SIZE;
 
   // One budget stops each setup partway and the benchmark runs on what was
@@ -581,7 +493,7 @@ TEST(CleanupTest, NoTempFileAfterBudgetCut) {
     config.timeBudgetSec = BUDGET_SEC;
 
     (void)runBenchSuite(config);
-    const std::vector<std::string> LEFT = listEntries(SCRATCH.path());
+    const std::vector<std::string> LEFT = listEntries(root_.c_str());
 
     EXPECT_TRUE(LEFT.empty()) << "left behind: " << (LEFT.empty() ? "" : LEFT.front());
   }
@@ -590,12 +502,8 @@ TEST(CleanupTest, NoTempFileAfterBudgetCut) {
 /* ----------------------------- Edge Case Tests ----------------------------- */
 
 /** @test Handles very small data size. */
-TEST(EdgeCaseTest, VerySmallDataSize) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(EdgeCaseTest, VerySmallDataSize) {
+  BenchConfig config = makeQuickConfig(root_);
   config.dataSize = config.ioSize; // Minimum valid
   config.iterations = 10;
 
@@ -605,12 +513,8 @@ TEST(EdgeCaseTest, VerySmallDataSize) {
 }
 
 /** @test Handles single iteration. */
-TEST(EdgeCaseTest, SingleIteration) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(EdgeCaseTest, SingleIteration) {
+  BenchConfig config = makeQuickConfig(root_);
   config.iterations = 1;
 
   const BenchResult RESULT = runFsyncBench(config);
@@ -619,12 +523,8 @@ TEST(EdgeCaseTest, SingleIteration) {
 }
 
 /** @test A data size that is not a whole number of blocks is written in whole blocks only. */
-TEST(EdgeCaseTest, NonMultipleDataSizeWritesWholeBlocks) {
-  if (!tmpIsWritable()) {
-    GTEST_SKIP() << "/tmp is not writable";
-  }
-
-  BenchConfig config = makeQuickConfig();
+TEST_F(EdgeCaseTest, NonMultipleDataSizeWritesWholeBlocks) {
+  BenchConfig config = makeQuickConfig(root_);
   config.ioSize = 4096;
   config.dataSize = NON_MULTIPLE_DATA_SIZE;
   const std::size_t WHOLE_BLOCK_BYTES = (config.dataSize / config.ioSize) * config.ioSize;

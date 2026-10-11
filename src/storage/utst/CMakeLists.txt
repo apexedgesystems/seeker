@@ -22,6 +22,7 @@ seeker_add_gtest(
   LINK
   seeker_storage
   fmt::fmt
+  seeker_test_support
   LABELS
   diagnostics
   storage

@@ -9,14 +9,15 @@ include_guard(GLOBAL)
 #
 # Add a GoogleTest-based test target with coverage and timing controls.
 #
-# Coverage is automatic: any project library in LINK is instrumented when
-# ENABLE_COVERAGE=ON. Use COVERAGE_FOR only to override auto-detection.
+# Coverage is automatic: any compiled project library in LINK is instrumented
+# when ENABLE_COVERAGE=ON. Use COVERAGE_FOR only to override auto-detection.
 #
 # Arguments:
 #   TARGET          <n>              required
 #   SOURCES         <src...>         required
 #   CUDA            <cu...>          optional
 #   LINK            <libs...>        optional
+#   LINK_OPTIONS    <options...>     optional (linker options for the test target)
 #   COVERAGE_FOR    <lib_target>     optional (overrides auto-detection)
 #   INC             <dir>            optional
 #   LABELS          <labels...>      optional
@@ -37,7 +38,7 @@ function (seeker_add_gtest)
   cmake_parse_arguments(
     GT "TIMING_ALL;NO_COVERAGE"
     "TARGET;INC;WORKING_DIR;RESOURCE_LOCK;COVERAGE_FOR;REQUIRES_THREADS"
-    "SOURCES;CUDA;LINK;LABELS;TIMING_TESTS;TIMING_PATTERNS" ${ARGN}
+    "SOURCES;CUDA;LINK;LINK_OPTIONS;LABELS;TIMING_TESTS;TIMING_PATTERNS" ${ARGN}
   )
   seeker_require(GT_TARGET GT_SOURCES)
 
@@ -68,6 +69,9 @@ function (seeker_add_gtest)
   endif ()
 
   target_link_libraries(${GT_TARGET} PRIVATE GTest::gtest_main GTest::gmock ${GT_LINK})
+  if (GT_LINK_OPTIONS)
+    target_link_options(${GT_TARGET} PRIVATE ${GT_LINK_OPTIONS})
+  endif ()
 
   set_target_properties(
     ${GT_TARGET} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tests"
@@ -98,6 +102,11 @@ function (seeker_add_gtest)
         # Skip imported targets (third-party like fmt::fmt, GTest::*)
         get_target_property(_imported ${_lib} IMPORTED)
         if (_imported)
+          continue()
+        endif ()
+        # Skip header-only targets: no objects of their own to instrument or map
+        get_target_property(_type ${_lib} TYPE)
+        if (_type STREQUAL "INTERFACE_LIBRARY")
           continue()
         endif ()
         list(APPEND _coverage_libs ${_lib})

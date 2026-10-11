@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+[#8]: https://github.com/apexedgesystems/seeker/pull/8
+
 ---
 
 ## v1.1.0
@@ -27,6 +29,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `SYNC_INTERVAL_BYTES` (4 MiB) in `StorageBench`: synced benchmark writes call
   `fdatasync` before the unsynced bytes would pass it, so no sync flushes more
   than 4 MiB or one I/O block, whichever is larger
+- Configurable filesystem root for file helpers, supporting isolated tests and
+  capture tools ([#8])
+- Reusable filesystem fixtures ([#8])
 
 ### Changed
 

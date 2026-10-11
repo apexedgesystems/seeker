@@ -107,9 +107,14 @@ endfunction ()
 #   FEATURES        <features...>      optional
 #   REQUIRES        <reqs...>          optional (POSIX, OPENSSL, LINUX, etc.)
 #   BAREMETAL                          optional flag (enables bare-metal build)
+#   NO_INSTALL                         optional flag: test support and other
+#                                      build-only interface libraries are
+#                                      neither installed nor exported
 # ------------------------------------------------------------------------------
 function (seeker_add_interface_library)
-  cmake_parse_arguments(IL "BAREMETAL" "NAME;INC" "DEPS_INTERFACE;DEFS;FEATURES;REQUIRES" ${ARGN})
+  cmake_parse_arguments(
+    IL "BAREMETAL;NO_INSTALL" "NAME;INC" "DEPS_INTERFACE;DEFS;FEATURES;REQUIRES" ${ARGN}
+  )
   seeker_require(IL_NAME IL_INC)
 
   # Default: require POSIX unless BAREMETAL flag is set
@@ -150,8 +155,10 @@ function (seeker_add_interface_library)
     target_compile_features(${IL_NAME} INTERFACE ${IL_FEATURES})
   endif ()
 
-  install(TARGETS ${IL_NAME} EXPORT seekerTargets)
-  install(DIRECTORY "${IL_INC}/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+  if (NOT IL_NO_INSTALL)
+    install(TARGETS ${IL_NAME} EXPORT seekerTargets)
+    install(DIRECTORY "${IL_INC}/" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+  endif ()
 
   if (SEEKER_TARGETS_VERBOSE)
     message(STATUS "[seeker] INTERFACE ${IL_NAME} inc='${IL_INC}' deps='${IL_DEPS_INTERFACE}'")
