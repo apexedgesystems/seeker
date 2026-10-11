@@ -6,15 +6,25 @@
  *  - Tests are platform-agnostic: assert invariants, not exact values.
  *  - All Linux systems have at least one block device (usually).
  *  - Virtual machines may have different device types than bare metal.
+ *  - SD card tests read a tree cut from a board capture through the
+ *    filesystem root (FilesystemRootTest), so they run on any host.
  */
 
 #include "src/storage/inc/BlockDeviceInfo.hpp"
+#include "src/helpers/utst/inc/FilesystemRootTest.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
+#include <vector>
 
+using seeker::helpers::files::filesystemRoot;
 using seeker::storage::BlockDevice;
 using seeker::storage::BlockDeviceList;
 using seeker::storage::DEVICE_NAME_SIZE;
@@ -23,6 +33,19 @@ using seeker::storage::getBlockDevice;
 using seeker::storage::getBlockDevices;
 using seeker::storage::MAX_BLOCK_DEVICES;
 using seeker::storage::MODEL_STRING_SIZE;
+using seeker::test_support::FilesystemRootTest;
+
+namespace {
+
+/// First line of a file read directly (not through the helpers), "" if absent.
+std::string readFirstLine(const std::string& path) {
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  return line;
+}
+
+} // namespace
 
 class BlockDeviceInfoTest : public ::testing::Test {
 protected:
@@ -383,4 +406,77 @@ TEST(BlockDeviceDeterminismTest, ConsistentResults) {
     EXPECT_EQ(LIST1.devices[i].sizeBytes, LIST2.devices[i].sizeBytes);
     EXPECT_EQ(LIST1.devices[i].rotational, LIST2.devices[i].rotational);
   }
+}
+/* ----------------------------- SD Card Tree Tests ----------------------------- */
+
+/// /sys/block of a Raspberry Pi 4 with its root on an SD card (captured
+/// 2026-10-10): mmcblk0 beside the loop, ram and zram devices the reader
+/// filters by name. The capture holds no queue/ or device/ attributes, so
+/// those fields keep the reader's defaults and are not asserted.
+class BlockDeviceSdCardTest : public FilesystemRootTest {
+protected:
+  BlockDeviceList devices_{};
+
+  void SetUp() override {
+    ASSERT_NO_FATAL_FAILURE(FilesystemRootTest::SetUp());
+    for (int i = 0; i < 8; ++i) {
+      dir("/sys/block/loop" + std::to_string(i));
+    }
+    for (int i = 0; i < 16; ++i) {
+      dir("/sys/block/ram" + std::to_string(i));
+    }
+    dir("/sys/block/zram0");
+    put("/sys/block/mmcblk0/size", "500695040\n");
+    put("/sys/block/mmcblk0/removable", "0\n");
+    devices_ = getBlockDevices();
+  }
+};
+
+/** @test Only the SD card is listed: the loop, ram and zram devices are filtered */
+TEST_F(BlockDeviceSdCardTest, ListsOnlyTheSdCard) {
+  ASSERT_EQ(devices_.count, 1U);
+  EXPECT_STREQ(devices_.devices[0].name.data(), "mmcblk0");
+}
+
+/** @test The SD card reports device type SD/eMMC */
+TEST_F(BlockDeviceSdCardTest, SdCardIsSdEmmc) {
+  const BlockDevice* card = devices_.find("mmcblk0");
+  ASSERT_NE(card, nullptr);
+  EXPECT_STREQ(card->deviceType(), "SD/eMMC");
+  EXPECT_EQ(devices_.countMmc(), 1U);
+  EXPECT_EQ(devices_.countNvme(), 0U);
+}
+
+/** @test Size and removability come from the card's sysfs attributes */
+TEST_F(BlockDeviceSdCardTest, SizeAndRemovableFromSysfs) {
+  const BlockDevice* card = devices_.find("mmcblk0");
+  ASSERT_NE(card, nullptr);
+  constexpr std::uint64_t SECTOR_BYTES = 512;
+  EXPECT_EQ(card->sizeBytes, 500695040ULL * SECTOR_BYTES);
+  EXPECT_FALSE(card->removable);
+}
+
+/* ----------------------------- Live System Tests ----------------------------- */
+
+/** @test With the root unset a live block device's size and block size match its sysfs files */
+TEST(BlockDeviceLiveTest, LiveDeviceMatchesSysBlock) {
+  ASSERT_STREQ(filesystemRoot(), "");
+  std::vector<std::string> names;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator("/sys/block", ec)) {
+    names.push_back(entry.path().filename().string());
+  }
+  if (names.empty()) {
+    GTEST_SKIP() << "/sys/block is absent or empty here";
+  }
+  std::sort(names.begin(), names.end());
+  const std::string SYSFS = "/sys/block/" + names.front();
+
+  const BlockDevice DEV = getBlockDevice(names.front().c_str());
+
+  // An absent logical_block_size reads as 512, the reader's default
+  const std::string LBS = readFirstLine(SYSFS + "/queue/logical_block_size");
+  EXPECT_EQ(DEV.logicalBlockSize, LBS.empty() ? 512U : std::stoul(LBS)) << SYSFS;
+  const std::string SECTORS = readFirstLine(SYSFS + "/size");
+  EXPECT_EQ(DEV.sizeBytes, (SECTORS.empty() ? 0ULL : std::stoull(SECTORS)) * 512ULL) << SYSFS;
 }

@@ -23,6 +23,8 @@ namespace network {
 using seeker::helpers::files::pathExists;
 using seeker::helpers::files::readFileInt;
 using seeker::helpers::files::readFileToBuffer;
+using seeker::helpers::files::RESOLVED_PATH_SIZE;
+using seeker::helpers::files::resolvePath;
 using seeker::helpers::strings::copyToFixedArray;
 
 namespace {
@@ -35,13 +37,24 @@ constexpr std::size_t READ_BUFFER_SIZE = 128;
 
 /* ----------------------------- File Helpers ----------------------------- */
 
+/// Open a directory by its logical path, resolved against the filesystem root.
+inline DIR* openResolvedDir(const char* path) noexcept {
+  char resolvedBuf[RESOLVED_PATH_SIZE];
+  const char* resolved = resolvePath(path, resolvedBuf, sizeof(resolvedBuf));
+  return (resolved != nullptr) ? ::opendir(resolved) : nullptr;
+}
+
 /**
- * Read symlink target basename.
+ * Read symlink target basename (the link's logical path is resolved against
+ * the filesystem root).
  * Returns true if successful.
  */
 inline bool readSymlinkBasename(const char* path, char* buf, std::size_t bufSize) noexcept {
+  char resolvedBuf[RESOLVED_PATH_SIZE];
+  const char* resolved = resolvePath(path, resolvedBuf, sizeof(resolvedBuf));
   char linkBuf[PATH_BUFFER_SIZE];
-  const ssize_t LEN = ::readlink(path, linkBuf, sizeof(linkBuf) - 1);
+  const ssize_t LEN =
+      (resolved != nullptr) ? ::readlink(resolved, linkBuf, sizeof(linkBuf) - 1) : -1;
   if (LEN <= 0) {
     buf[0] = '\0';
     return false;
@@ -71,7 +84,7 @@ inline bool readSymlinkBasename(const char* path, char* buf, std::size_t bufSize
  * Used for counting rx-* and tx-* queue directories.
  */
 inline int countDirsWithPrefix(const char* dirPath, const char* prefix) noexcept {
-  DIR* dir = ::opendir(dirPath);
+  DIR* dir = openResolvedDir(dirPath);
   if (dir == nullptr) {
     return 0;
   }
@@ -319,7 +332,7 @@ InterfaceInfo getInterfaceInfo(const char* ifname) noexcept {
 InterfaceList getAllInterfaces() noexcept {
   InterfaceList list{};
 
-  DIR* dir = ::opendir(NET_SYS_PATH);
+  DIR* dir = openResolvedDir(NET_SYS_PATH);
   if (dir == nullptr) {
     return list;
   }
@@ -346,7 +359,7 @@ InterfaceList getAllInterfaces() noexcept {
 InterfaceList getPhysicalInterfaces() noexcept {
   InterfaceList list{};
 
-  DIR* dir = ::opendir(NET_SYS_PATH);
+  DIR* dir = openResolvedDir(NET_SYS_PATH);
   if (dir == nullptr) {
     return list;
   }

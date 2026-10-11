@@ -6,9 +6,13 @@
  *  - Tests are platform-agnostic: assert invariants, not exact values.
  *  - All Linux systems have at least a loopback interface (lo).
  *  - Physical NICs may or may not be present depending on hardware.
+ *  - CAN, Ethernet and Wi-Fi tests read a tree cut from a board capture
+ *    through the filesystem root (FilesystemRootTest), so they run on any
+ *    host.
  */
 
 #include "src/network/inc/InterfaceInfo.hpp"
+#include "src/helpers/utst/inc/FilesystemRootTest.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,8 +20,10 @@
 
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 
+using seeker::helpers::files::filesystemRoot;
 using seeker::network::formatSpeed;
 using seeker::network::getAllInterfaces;
 using seeker::network::getInterfaceInfo;
@@ -27,8 +33,22 @@ using seeker::network::IF_STRING_SIZE;
 using seeker::network::InterfaceInfo;
 using seeker::network::InterfaceList;
 using seeker::network::isNicLinkType;
+using seeker::network::isVirtualInterface;
 using seeker::network::MAC_STRING_SIZE;
 using seeker::network::MAX_INTERFACES;
+using seeker::test_support::FilesystemRootTest;
+
+namespace {
+
+/// First line of a file read directly (not through the helpers), "" if absent.
+std::string readFirstLine(const std::string& path) {
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  return line;
+}
+
+} // namespace
 
 class InterfaceInfoTest : public ::testing::Test {
 protected:
@@ -397,4 +417,134 @@ TEST(PhysicalNicTest, DriverInfoIfPresent) {
     EXPECT_LE(std::strlen(NIC.driver.data()), IF_STRING_SIZE - 1)
         << "NIC " << NIC.ifname.data() << " has invalid driver string";
   }
+}
+/* ----------------------------- CAN, Ethernet and Wi-Fi Tree Tests ----------------------------- */
+
+namespace {
+
+/// An interface of the tree: its link type, operstate and MTU attributes and
+/// its device directory under /sys/devices ("" for none).
+struct TreeInterface {
+  const char* name;
+  const char* type;
+  const char* operstate;
+  const char* mtu;
+  const char* device;
+};
+
+/// /sys/class/net of a Jetson (captured 2026-10-10): four CAN controllers
+/// (link type 280) beside PCIe Ethernet, Wi-Fi, two USB gadget interfaces, a
+/// bridge and loopback. Device directories keep the captured platform paths
+/// with the CAN controllers named "can"; the bridge, named after a product in
+/// the capture, is br0. usb0 and usb1 are in the tree for a complete listing;
+/// no test depends on how they are classified.
+constexpr TreeInterface CAN_ETHERNET_WIFI[] = {
+    {"lo", "772", "unknown", "65536", ""},
+    {"can0", "280", "down", "16", "platform/bus@0/81102f0000.can"},
+    {"can1", "280", "down", "16", "platform/bus@0/8110300000.can"},
+    {"can2", "280", "down", "16", "platform/bus@0/8110330000.can"},
+    {"can3", "280", "down", "16", "platform/bus@0/8110340000.can"},
+    {"enP2p1s0", "1", "down", "1500",
+     "platform/bus@0/a808420000.pcie/pci0002:00/0002:00:00.0/0002:01:00.0"},
+    {"wlP1p1s0", "1", "up", "1500",
+     "platform/bus@0/a808400000.pcie/pci0001:00/0001:00:00.0/0001:01:00.0"},
+    {"usb0", "1", "down", "1500", "platform/bus@0/a808670000.usb/gadget.0"},
+    {"usb1", "1", "down", "1500", "platform/bus@0/a808670000.usb/gadget.0"},
+    {"br0", "1", "down", "1500", ""},
+};
+
+} // namespace
+
+class InterfaceInfoCanEthernetWifiTest : public FilesystemRootTest {
+protected:
+  void SetUp() override {
+    ASSERT_NO_FATAL_FAILURE(FilesystemRootTest::SetUp());
+    for (const TreeInterface& iface : CAN_ETHERNET_WIFI) {
+      const std::string DIR = std::string("/sys/class/net/") + iface.name;
+      put(DIR + "/type", std::string(iface.type) + "\n");
+      put(DIR + "/operstate", std::string(iface.operstate) + "\n");
+      put(DIR + "/mtu", std::string(iface.mtu) + "\n");
+      if (iface.device[0] != '\0') {
+        dir(std::string("/sys/devices/") + iface.device);
+        link(DIR + "/device", std::string("../../../devices/") + iface.device);
+      }
+    }
+    // The bridge has no device, no link speed and no duplex
+    put("/sys/class/net/br0/speed", "-1\n");
+    put("/sys/class/net/br0/duplex", "unknown\n");
+  }
+};
+
+/** @test The CAN interfaces are listed and read from the tree but are not physical NICs */
+TEST_F(InterfaceInfoCanEthernetWifiTest, CanInterfacesAreNotPhysical) {
+  const InterfaceList ALL = getAllInterfaces();
+  const InterfaceList PHYSICAL = getPhysicalInterfaces();
+  for (const char* name : {"can0", "can1", "can2", "can3"}) {
+    SCOPED_TRACE(name);
+    const InterfaceInfo* info = ALL.find(name);
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(info->mtu, 16);
+    EXPECT_FALSE(info->isPhysical());
+    EXPECT_EQ(PHYSICAL.find(name), nullptr);
+  }
+}
+
+/** @test The Ethernet and Wi-Fi interfaces are physical NICs */
+TEST_F(InterfaceInfoCanEthernetWifiTest, EthernetAndWifiArePhysical) {
+  const InterfaceList PHYSICAL = getPhysicalInterfaces();
+  for (const char* name : {"enP2p1s0", "wlP1p1s0"}) {
+    SCOPED_TRACE(name);
+    EXPECT_FALSE(isVirtualInterface(name));
+    const InterfaceInfo* info = PHYSICAL.find(name);
+    ASSERT_NE(info, nullptr);
+    EXPECT_TRUE(info->isPhysical());
+  }
+}
+
+/** @test Loopback and the bridge are listed but are not physical */
+TEST_F(InterfaceInfoCanEthernetWifiTest, LoopbackAndBridgeAreNotPhysical) {
+  const InterfaceList ALL = getAllInterfaces();
+  for (const char* name : {"lo", "br0"}) {
+    SCOPED_TRACE(name);
+    const InterfaceInfo* info = ALL.find(name);
+    ASSERT_NE(info, nullptr);
+    EXPECT_FALSE(info->isPhysical());
+  }
+}
+
+/** @test Enumeration lists every interface of the tree and nothing else */
+TEST_F(InterfaceInfoCanEthernetWifiTest, EnumeratesEveryInterface) {
+  const InterfaceList ALL = getAllInterfaces();
+  EXPECT_EQ(ALL.count, std::size(CAN_ETHERNET_WIFI));
+  for (const TreeInterface& iface : CAN_ETHERNET_WIFI) {
+    EXPECT_NE(ALL.find(iface.name), nullptr) << iface.name;
+  }
+}
+
+/** @test Link state and MTU come from the interface's attributes */
+TEST_F(InterfaceInfoCanEthernetWifiTest, LinkStateAndMtuFromSysfs) {
+  const InterfaceInfo WIFI = getInterfaceInfo("wlP1p1s0");
+  EXPECT_TRUE(WIFI.isUp());
+  EXPECT_TRUE(WIFI.hasLink());
+  EXPECT_EQ(WIFI.mtu, 1500);
+
+  const InterfaceInfo ETHERNET = getInterfaceInfo("enP2p1s0");
+  EXPECT_FALSE(ETHERNET.isUp());
+  EXPECT_FALSE(ETHERNET.hasLink());
+}
+
+/* ----------------------------- Live System Tests ----------------------------- */
+
+/** @test With the root unset loopback's state and MTU match its sysfs files */
+TEST(InterfaceInfoLiveTest, LoopbackMatchesSysfs) {
+  ASSERT_STREQ(filesystemRoot(), "");
+  const std::string OPERSTATE = readFirstLine("/sys/class/net/lo/operstate");
+  const std::string MTU = readFirstLine("/sys/class/net/lo/mtu");
+  if (OPERSTATE.empty() || MTU.empty()) {
+    GTEST_SKIP() << "/sys/class/net/lo is absent here";
+  }
+
+  const InterfaceInfo LO = getInterfaceInfo("lo");
+  EXPECT_EQ(std::string(LO.operState.data()), OPERSTATE);
+  EXPECT_EQ(LO.mtu, std::stoi(MTU));
 }

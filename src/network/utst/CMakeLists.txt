@@ -21,6 +21,7 @@ seeker_add_gtest(
   LINK
   seeker_network
   fmt::fmt
+  seeker_test_support
   LABELS
   diagnostics
   network

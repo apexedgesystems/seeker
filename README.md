@@ -392,9 +392,9 @@ make compose-ubsan          # UBSanitizer
 | Domain  | Test Target         | Tests |
 | ------- | ------------------- | ----- |
 | CPU     | `TestSeekerCpu`     | 222   |
-| Memory  | `TestSeekerMemory`  | 182   |
-| Storage | `TestSeekerStorage` | 136   |
-| Network | `TestSeekerNetwork` | 223   |
+| Memory  | `TestSeekerMemory`  | 190   |
+| Storage | `TestSeekerStorage` | 140   |
+| Network | `TestSeekerNetwork` | 229   |
 | Timing  | `TestSeekerTiming`  | 226   |
 | System  | `TestSeekerSystem`  | 344   |
 | Device  | `TestSeekerDevice`  | 335   |

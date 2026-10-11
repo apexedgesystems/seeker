@@ -3,17 +3,30 @@
  * @brief Unit tests for seeker::memory::NumaTopology.
  *
  * Notes:
- *  - Tests are platform-agnostic: assert invariants, not exact values.
+ *  - Live tests are platform-agnostic: assert invariants, not exact values.
  *  - Single-node systems will have nodeCount=1 or 0 (both valid).
+ *  - Fake NUMA tests read a tree cut from a board capture through the
+ *    filesystem root (FilesystemRootTest), so they run on any host; the
+ *    two-node tests read a synthetic physical topology the same way.
+ *  - Live tests that assume physical NUMA skip when the kernel lists a CPU
+ *    under more than one node (emulated NUMA).
  */
 
 #include "src/memory/inc/NumaTopology.hpp"
+#include "src/helpers/utst/inc/FilesystemRootTest.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <sstream>
 #include <string>
+#include <system_error>
 
+using seeker::helpers::files::filesystemRoot;
 using seeker::memory::getNumaTopology;
 using seeker::memory::MAX_CPUS_PER_NODE;
 using seeker::memory::MAX_NUMA_NODES;
@@ -21,15 +34,58 @@ using seeker::memory::NUMA_DISTANCE_INVALID;
 using seeker::memory::NUMA_DISTANCE_LOCAL;
 using seeker::memory::NumaNodeInfo;
 using seeker::memory::NumaTopology;
+using seeker::test_support::FilesystemRootTest;
+
+namespace {
+
+/// True when the live kernel lists a CPU under more than one node, the
+/// signature of emulated NUMA (numa=fake gives each fake node the CPUs of its
+/// physical node). Read from the cpulist files directly, not through the
+/// reader under test.
+bool liveNumaIsEmulated() {
+  std::set<int> seen;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator("/sys/devices/system/node", ec)) {
+    const std::string NAME = entry.path().filename().string();
+    if (NAME.size() <= 4 || NAME.compare(0, 4, "node") != 0 ||
+        NAME.find_first_not_of("0123456789", 4) != std::string::npos) {
+      continue;
+    }
+    std::ifstream in(entry.path() / "cpulist");
+    std::string list;
+    std::getline(in, list);
+    // Comma-separated CPUs and ranges: "0-3,8,10-11"
+    std::stringstream items(list);
+    std::string item;
+    while (std::getline(items, item, ',')) {
+      if (item.empty()) {
+        continue;
+      }
+      const std::size_t DASH = item.find('-');
+      const int FIRST = std::stoi(item.substr(0, DASH));
+      const int LAST = (DASH == std::string::npos) ? FIRST : std::stoi(item.substr(DASH + 1));
+      for (int cpu = FIRST; cpu <= LAST; ++cpu) {
+        if (!seen.insert(cpu).second) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+} // namespace
 
 class NumaTopologyTest : public ::testing::Test {
 protected:
   NumaTopology topo_{};
   bool hasNuma_{false};
+  bool emulatedNuma_{false};
 
   void SetUp() override {
     topo_ = getNumaTopology();
     hasNuma_ = (topo_.nodeCount > 0);
+    emulatedNuma_ = liveNumaIsEmulated();
   }
 };
 
@@ -129,6 +185,10 @@ TEST_F(NumaTopologyTest, CpuIdsNonNegative) {
 
 /** @test CPU IDs are unique across all nodes. */
 TEST_F(NumaTopologyTest, CpuIdsUniqueAcrossNodes) {
+  if (emulatedNuma_) {
+    GTEST_SKIP() << "Emulated NUMA: nodes share CPUs (NumaTopologyTwoNodeTest covers this)";
+  }
+
   std::set<int> seen;
   for (std::size_t i = 0; i < topo_.nodeCount; ++i) {
     for (std::size_t j = 0; j < topo_.nodes[i].cpuCount; ++j) {
@@ -160,6 +220,9 @@ TEST_F(NumaTopologyTest, HasCpuCorrect) {
 TEST_F(NumaTopologyTest, FindNodeForCpuCorrect) {
   if (!hasNuma_) {
     GTEST_SKIP() << "NUMA not available";
+  }
+  if (emulatedNuma_) {
+    GTEST_SKIP() << "Emulated NUMA: nodes share CPUs (NumaTopologyTwoNodeTest covers this)";
   }
 
   for (std::size_t i = 0; i < topo_.nodeCount; ++i) {
@@ -208,6 +271,9 @@ TEST_F(NumaTopologyTest, DistanceSymmetric) {
 TEST_F(NumaTopologyTest, RemoteDistanceGreaterThanLocal) {
   if (topo_.nodeCount < 2) {
     GTEST_SKIP() << "Need multiple NUMA nodes for remote distance test";
+  }
+  if (emulatedNuma_) {
+    GTEST_SKIP() << "Emulated NUMA: nodes share CPUs (NumaTopologyTwoNodeTest covers this)";
   }
 
   for (std::size_t i = 0; i < topo_.nodeCount; ++i) {
@@ -348,4 +414,152 @@ TEST(NumaNodeInfoEdgeCaseTest, UsedBytesNoUnderflow) {
   node.freeBytes = 200; // Invalid but shouldn't crash
 
   EXPECT_EQ(node.usedBytes(), 0U);
+}
+/* ----------------------------- Fake NUMA Tree Tests ----------------------------- */
+
+/// /sys/devices/system/node of a Raspberry Pi 4 booted with numa=fake=2
+/// (captured 2026-10-10): two nodes over the same four CPUs with local
+/// distances; each meminfo holds the two lines the reader parses.
+class NumaTopologyFakeNumaTest : public FilesystemRootTest {
+protected:
+  NumaTopology topo_{};
+
+  void SetUp() override {
+    ASSERT_NO_FATAL_FAILURE(FilesystemRootTest::SetUp());
+    put("/sys/devices/system/node/node0/cpulist", "0-3\n");
+    put("/sys/devices/system/node/node0/distance", "10 10\n");
+    put("/sys/devices/system/node/node0/meminfo", "Node 0 MemTotal:        3959444 kB\n"
+                                                  "Node 0 MemFree:         2653064 kB\n");
+    put("/sys/devices/system/node/node1/cpulist", "0-3\n");
+    put("/sys/devices/system/node/node1/distance", "10 10\n");
+    put("/sys/devices/system/node/node1/meminfo", "Node 1 MemTotal:        4048016 kB\n"
+                                                  "Node 1 MemFree:         2768476 kB\n");
+    topo_ = getNumaTopology();
+  }
+};
+
+/** @test Both fake nodes are reported, in node order */
+TEST_F(NumaTopologyFakeNumaTest, ReportsBothNodes) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  EXPECT_EQ(topo_.nodes[0].nodeId, 0);
+  EXPECT_EQ(topo_.nodes[1].nodeId, 1);
+  EXPECT_TRUE(topo_.isNuma());
+}
+
+/** @test Both nodes list the same four CPUs: fake nodes overlap */
+TEST_F(NumaTopologyFakeNumaTest, BothNodesListTheSameFourCpus) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  for (std::size_t n = 0; n < topo_.nodeCount; ++n) {
+    SCOPED_TRACE(::testing::Message() << "node " << n);
+    ASSERT_EQ(topo_.nodes[n].cpuCount, 4U);
+    for (int cpu = 0; cpu < 4; ++cpu) {
+      EXPECT_EQ(topo_.nodes[n].cpuIds[cpu], cpu);
+    }
+  }
+}
+
+/** @test Every distance between the fake nodes is the local distance */
+TEST_F(NumaTopologyFakeNumaTest, AllDistancesAreLocal) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  for (std::size_t from = 0; from < topo_.nodeCount; ++from) {
+    for (std::size_t to = 0; to < topo_.nodeCount; ++to) {
+      EXPECT_EQ(topo_.getDistance(from, to), NUMA_DISTANCE_LOCAL) << from << " -> " << to;
+    }
+  }
+}
+
+/** @test Node memory comes from each node's meminfo */
+TEST_F(NumaTopologyFakeNumaTest, NodeMemoryFromNodeMeminfo) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  constexpr std::uint64_t KIB = 1024;
+  EXPECT_EQ(topo_.nodes[0].totalBytes, 3959444 * KIB);
+  EXPECT_EQ(topo_.nodes[0].freeBytes, 2653064 * KIB);
+  EXPECT_EQ(topo_.nodes[1].totalBytes, 4048016 * KIB);
+  EXPECT_EQ(topo_.nodes[1].freeBytes, 2768476 * KIB);
+}
+
+/* ----------------------------- Two-Node Tree Tests ----------------------------- */
+
+/// A physical two-node topology: node0 owns CPUs 0-3 and node1 CPUs 4-7, each
+/// node 10 from itself and 20 from the other. Synthetic: written to the
+/// kernel's sysfs node ABI (cpulist, distance and meminfo per node), since no
+/// capture of a physical two-node machine exists to cut it from.
+class NumaTopologyTwoNodeTest : public FilesystemRootTest {
+protected:
+  static constexpr std::uint8_t REMOTE_DISTANCE = 20;
+  NumaTopology topo_{};
+
+  void SetUp() override {
+    ASSERT_NO_FATAL_FAILURE(FilesystemRootTest::SetUp());
+    put("/sys/devices/system/node/node0/cpulist", "0-3\n");
+    put("/sys/devices/system/node/node0/distance", "10 20\n");
+    put("/sys/devices/system/node/node0/meminfo", "Node 0 MemTotal:        8388608 kB\n"
+                                                  "Node 0 MemFree:         4194304 kB\n");
+    put("/sys/devices/system/node/node1/cpulist", "4-7\n");
+    put("/sys/devices/system/node/node1/distance", "20 10\n");
+    put("/sys/devices/system/node/node1/meminfo", "Node 1 MemTotal:        8388608 kB\n"
+                                                  "Node 1 MemFree:         6291456 kB\n");
+    topo_ = getNumaTopology();
+  }
+};
+
+/** @test CPU IDs are unique across nodes that own their CPUs */
+TEST_F(NumaTopologyTwoNodeTest, CpuIdsUniqueAcrossNodes) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  std::set<int> seen;
+  for (std::size_t i = 0; i < topo_.nodeCount; ++i) {
+    for (std::size_t j = 0; j < topo_.nodes[i].cpuCount; ++j) {
+      const int CPU_ID = topo_.nodes[i].cpuIds[j];
+      EXPECT_TRUE(seen.insert(CPU_ID).second) << "Duplicate CPU ID: " << CPU_ID;
+    }
+  }
+  EXPECT_EQ(seen.size(), 8U);
+}
+
+/** @test findNodeForCpu returns the node that owns the CPU, for every CPU of each node */
+TEST_F(NumaTopologyTwoNodeTest, FindNodeForCpuCorrect) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  EXPECT_EQ(topo_.findNodeForCpu(2), 0);
+  EXPECT_EQ(topo_.findNodeForCpu(6), 1);
+  for (std::size_t i = 0; i < topo_.nodeCount; ++i) {
+    const auto& NODE = topo_.nodes[i];
+    for (std::size_t j = 0; j < NODE.cpuCount; ++j) {
+      EXPECT_EQ(topo_.findNodeForCpu(NODE.cpuIds[j]), static_cast<int>(i))
+          << "CPU " << NODE.cpuIds[j];
+    }
+  }
+}
+
+/** @test The remote distance is greater than the local one, both ways */
+TEST_F(NumaTopologyTwoNodeTest, RemoteDistanceGreaterThanLocal) {
+  ASSERT_EQ(topo_.nodeCount, 2U);
+  EXPECT_EQ(topo_.getDistance(0, 0), NUMA_DISTANCE_LOCAL);
+  EXPECT_EQ(topo_.getDistance(1, 1), NUMA_DISTANCE_LOCAL);
+  EXPECT_EQ(topo_.getDistance(0, 1), REMOTE_DISTANCE);
+  EXPECT_EQ(topo_.getDistance(1, 0), REMOTE_DISTANCE);
+  EXPECT_GT(topo_.getDistance(0, 1), NUMA_DISTANCE_LOCAL);
+  EXPECT_GT(topo_.getDistance(1, 0), NUMA_DISTANCE_LOCAL);
+}
+
+/* ----------------------------- Live System Tests ----------------------------- */
+
+/** @test With the root unset the node count matches the live node directories */
+TEST(NumaTopologyLiveTest, NodeCountMatchesTheLiveNodeDirectories) {
+  ASSERT_STREQ(filesystemRoot(), "");
+  const std::filesystem::path NODE_DIR{"/sys/devices/system/node"};
+  std::error_code ec;
+  if (!std::filesystem::is_directory(NODE_DIR, ec)) {
+    GTEST_SKIP() << NODE_DIR << " is absent here";
+  }
+
+  std::size_t liveNodes = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(NODE_DIR, ec)) {
+    const std::string NAME = entry.path().filename().string();
+    if (NAME.size() > 4 && NAME.compare(0, 4, "node") == 0 &&
+        NAME.find_first_not_of("0123456789", 4) == std::string::npos && entry.is_directory(ec)) {
+      ++liveNodes;
+    }
+  }
+
+  EXPECT_EQ(getNumaTopology().nodeCount, std::min<std::size_t>(liveNodes, MAX_NUMA_NODES));
 }

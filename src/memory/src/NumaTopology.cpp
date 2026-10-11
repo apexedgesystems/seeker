@@ -25,6 +25,8 @@ namespace seeker {
 namespace memory {
 
 using seeker::helpers::files::readFileToBuffer;
+using seeker::helpers::files::RESOLVED_PATH_SIZE;
+using seeker::helpers::files::resolvePath;
 using seeker::helpers::format::bytesBinary;
 
 namespace {
@@ -312,10 +314,14 @@ NumaTopology getNumaTopology() noexcept {
   // Initialize distance matrix to invalid
   std::memset(topo.distance, NUMA_DISTANCE_INVALID, sizeof(topo.distance));
 
+  // Node files are read by their logical paths through the file helpers,
+  // which resolve them; the directory scan resolves the node directory itself
   const fs::path NODE_BASE{"/sys/devices/system/node"};
+  char nodeDirBuf[RESOLVED_PATH_SIZE];
+  const char* nodeDir = resolvePath(NODE_BASE.c_str(), nodeDirBuf, sizeof(nodeDirBuf));
   std::error_code ec;
 
-  if (!fs::exists(NODE_BASE, ec)) {
+  if (nodeDir == nullptr || !fs::exists(nodeDir, ec)) {
     return topo;
   }
 
@@ -323,7 +329,7 @@ NumaTopology getNumaTopology() noexcept {
   std::array<int, MAX_NUMA_NODES> nodeIds{};
   std::size_t nodeIdCount = 0;
 
-  for (const auto& ENTRY : fs::directory_iterator(NODE_BASE, ec)) {
+  for (const auto& ENTRY : fs::directory_iterator(nodeDir, ec)) {
     if (!ENTRY.is_directory(ec)) {
       continue;
     }

@@ -19,9 +19,12 @@ namespace seeker {
 
 namespace storage {
 
+using seeker::helpers::files::pathExists;
 using seeker::helpers::files::readFileInt64;
 using seeker::helpers::files::readFileToBuffer;
 using seeker::helpers::files::readFileUint64;
+using seeker::helpers::files::RESOLVED_PATH_SIZE;
+using seeker::helpers::files::resolvePath;
 using seeker::helpers::strings::copyToBuffer;
 
 namespace {
@@ -80,9 +83,6 @@ inline bool shouldFilterDevice(const char* name) noexcept {
   }
   return false;
 }
-
-/// Check if path exists.
-inline bool pathExists(const char* path) noexcept { return ::access(path, F_OK) == 0; }
 
 } // namespace
 
@@ -245,7 +245,11 @@ BlockDevice getBlockDevice(const char* name) noexcept {
 BlockDeviceList getBlockDevices() noexcept {
   BlockDeviceList list{};
 
-  DIR* dir = ::opendir(SYS_BLOCK);
+  // Device names come from the resolved directory; getBlockDevice() reads
+  // each device by its logical path through the file helpers
+  char sysBlockBuf[RESOLVED_PATH_SIZE];
+  const char* sysBlock = resolvePath(SYS_BLOCK, sysBlockBuf, sizeof(sysBlockBuf));
+  DIR* dir = (sysBlock != nullptr) ? ::opendir(sysBlock) : nullptr;
   if (dir == nullptr) {
     return list;
   }
