@@ -31,7 +31,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   than 4 MiB or one I/O block, whichever is larger
 - Configurable filesystem root for file helpers and NUMA, block-device and
   network-interface readers, supporting isolated tests and capture tools ([#8])
-- Reusable filesystem fixtures ([#8])
+- Reusable filesystem fixtures and deterministic storage-benchmark tests ([#8])
 
 ### Changed
 

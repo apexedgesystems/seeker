@@ -109,6 +109,11 @@ std::vector<std::string> listEntries(const char* dir) {
   return names;
 }
 
+/// Longest file name a benchmark appends to its directory: the pattern
+/// "%s/storagebench_%d_%lu.tmp" of makeTempPath() in StorageBench.cpp, with
+/// an int pid of at most 10 digits and a counter below 1000000 (6 digits).
+constexpr std::size_t LONGEST_BENCH_FILE_NAME = sizeof("/storagebench__.tmp") - 1 + 10 + 6;
+
 /// Create a small config for quick tests that run in dir.
 BenchConfig makeQuickConfig(const std::filesystem::path& dir) {
   BenchConfig config{};
@@ -126,17 +131,29 @@ BenchConfig makeQuickConfig(const std::filesystem::path& dir) {
 
 /* ----------------------------- Fixtures ----------------------------- */
 
+/// The test's scratch tree as its benchmark directory, checked to leave room
+/// for the longest benchmark file name within BENCH_PATH_SIZE.
+class BenchDirectoryTest : public ScratchTreeTest {
+protected:
+  void SetUp() override {
+    ASSERT_NO_FATAL_FAILURE(ScratchTreeTest::SetUp());
+    ASSERT_LE(root_.string().size() + LONGEST_BENCH_FILE_NAME + 1, BENCH_PATH_SIZE)
+        << "benchmark file paths under " << root_ << " would not fit BENCH_PATH_SIZE ("
+        << BENCH_PATH_SIZE << "); set a shorter TEST_TMPDIR";
+  }
+};
+
 // Suites that need a benchmark directory use their test's scratch tree (root_)
-class BenchConfigTest : public ScratchTreeTest {};
-class SeqWriteBenchTest : public ScratchTreeTest {};
-class SeqReadBenchTest : public ScratchTreeTest {};
-class FsyncBenchTest : public ScratchTreeTest {};
-class RandReadBenchTest : public ScratchTreeTest {};
-class RandWriteBenchTest : public ScratchTreeTest {};
-class BenchSuiteRunTest : public ScratchTreeTest {};
-class TimeBudgetTest : public ScratchTreeTest {};
-class CleanupTest : public ScratchTreeTest {};
-class EdgeCaseTest : public ScratchTreeTest {};
+class BenchConfigTest : public BenchDirectoryTest {};
+class SeqWriteBenchTest : public BenchDirectoryTest {};
+class SeqReadBenchTest : public BenchDirectoryTest {};
+class FsyncBenchTest : public BenchDirectoryTest {};
+class RandReadBenchTest : public BenchDirectoryTest {};
+class RandWriteBenchTest : public BenchDirectoryTest {};
+class BenchSuiteRunTest : public BenchDirectoryTest {};
+class TimeBudgetTest : public BenchDirectoryTest {};
+class CleanupTest : public BenchDirectoryTest {};
+class EdgeCaseTest : public BenchDirectoryTest {};
 
 /* ----------------------------- BenchConfig Tests ----------------------------- */
 

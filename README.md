@@ -389,17 +389,18 @@ make compose-tsan           # ThreadSanitizer
 make compose-ubsan          # UBSanitizer
 ```
 
-| Domain  | Test Target         | Tests |
-| ------- | ------------------- | ----- |
-| CPU     | `TestSeekerCpu`     | 222   |
-| Memory  | `TestSeekerMemory`  | 190   |
-| Storage | `TestSeekerStorage` | 140   |
-| Network | `TestSeekerNetwork` | 229   |
-| Timing  | `TestSeekerTiming`  | 226   |
-| System  | `TestSeekerSystem`  | 344   |
-| Device  | `TestSeekerDevice`  | 335   |
-| GPU     | `TestSeekerGpu`     | 159   |
-| Helpers | `TestSeekerHelpers` | 43    |
+| Domain  | Test Target                 | Tests |
+| ------- | --------------------------- | ----- |
+| CPU     | `TestSeekerCpu`             | 222   |
+| Memory  | `TestSeekerMemory`          | 190   |
+| Storage | `TestSeekerStorage`         | 140   |
+| Storage | `TestSeekerStorageSyscalls` | 8     |
+| Network | `TestSeekerNetwork`         | 229   |
+| Timing  | `TestSeekerTiming`          | 226   |
+| System  | `TestSeekerSystem`          | 344   |
+| Device  | `TestSeekerDevice`          | 335   |
+| GPU     | `TestSeekerGpu`             | 159   |
+| Helpers | `TestSeekerHelpers`         | 43    |
 
 Some tests may be skipped on systems without NUMA, specific hardware, or
 elevated privileges.
