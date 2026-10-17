@@ -389,19 +389,32 @@ make compose-tsan           # ThreadSanitizer
 make compose-ubsan          # UBSanitizer
 ```
 
-| Domain  | Test Target         | Tests |
-| ------- | ------------------- | ----- |
-| CPU     | `TestSeekerCpu`     | 222   |
-| Memory  | `TestSeekerMemory`  | 182   |
-| Storage | `TestSeekerStorage` | 136   |
-| Network | `TestSeekerNetwork` | 223   |
-| Timing  | `TestSeekerTiming`  | 226   |
-| System  | `TestSeekerSystem`  | 344   |
-| Device  | `TestSeekerDevice`  | 335   |
-| GPU     | `TestSeekerGpu`     | 159   |
+| Domain  | Test Target                 | Tests |
+| ------- | --------------------------- | ----- |
+| CPU     | `TestSeekerCpu`             | 222   |
+| Memory  | `TestSeekerMemory`          | 190   |
+| Storage | `TestSeekerStorage`         | 140   |
+| Storage | `TestSeekerStorageSyscalls` | 8     |
+| Network | `TestSeekerNetwork`         | 229   |
+| Timing  | `TestSeekerTiming`          | 226   |
+| System  | `TestSeekerSystem`          | 344   |
+| Device  | `TestSeekerDevice`          | 335   |
+| GPU     | `TestSeekerGpu`             | 159   |
+| Helpers | `TestSeekerHelpers`         | 43    |
 
 Some tests may be skipped on systems without NUMA, specific hardware, or
 elevated privileges.
+
+Tests that need files use the test support in `src/helpers/utst/inc/`:
+`ScratchDirectory` owns one temporary directory (standard library only), and
+`ScratchTreeTest`, its gtest adapter, gives each test a directory of its own
+under `TEST_TMPDIR` (else `TMPDIR`, else `/tmp`), removed afterwards. A failed
+cleanup fails the test; set `TEST_KEEP_TMPDIR=1` to keep a failed test's
+directory, whose path the test prints. The target `seeker_scratch_tree` carries
+those two (gtest only); `seeker_test_support` adds `FilesystemRootTest`, which
+makes the test's directory the file helpers' filesystem root
+(`setFilesystemRoot()` in `Files.hpp`), shared with the seeker libraries only
+under ordinary shared linkage with default symbol visibility.
 
 ---
 
@@ -453,7 +466,7 @@ seeker/
     device/                   Device diagnostics library + tests
     system/                   System diagnostics library + tests
     gpu/                      GPU diagnostics library + tests
-    helpers/                  Shared utilities (files, strings, formatting)
+    helpers/                  Shared utilities (files, strings, formatting) + tests, test support
   tools/
     cpp/                      34 C++ CLI tools organized by domain
 ```

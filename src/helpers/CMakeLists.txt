@@ -13,10 +13,20 @@ seeker_module(seeker_helpers)
 # Interface Library
 # ------------------------------------------------------------------------------
 
-seeker_add_interface_library(NAME ${LIB_NAME} INC "${INC_DIR}" DEPS_PUBLIC fmt::fmt)
+seeker_add_interface_library(NAME ${LIB_NAME} INC "${INC_DIR}" DEPS_INTERFACE fmt::fmt)
 
 # ------------------------------------------------------------------------------
 # Opt-ins (coverage, doxygen, UPX)
 # ------------------------------------------------------------------------------
 
 seeker_standard_optins(${LIB_NAME})
+
+# ------------------------------------------------------------------------------
+# Subdirectories
+# ------------------------------------------------------------------------------
+
+if (PROJECT_IS_TOP_LEVEL)
+  if (EXISTS "${UTST_DIR}/CMakeLists.txt")
+    add_subdirectory(utst)
+  endif ()
+endif ()
