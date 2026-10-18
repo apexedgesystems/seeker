@@ -1,6 +1,22 @@
 # ==============================================================================
 # seeker/Coverage.cmake - Code coverage infrastructure (LLVM source-based)
 # ==============================================================================
+#
+# A mapping pairs a test executable with a library it covers. seeker_add_gtest
+# maps a test to each shared library in its LINK that this project builds from
+# C or C++ sources (or to its COVERAGE_FOR library), instruments both and adds
+# a <test>_coverage CTest test labelled Coverage. Header-only (INTERFACE) and
+# CUDA-only libraries are not mapped: the instrumentation covers C and C++
+# compiles only, so they carry no coverage mapping of their own; their inline
+# code is reported where a mapped library or test compiles it. Production
+# sources compiled into a test are reported with the libraries that test maps;
+# a test that maps no library is not part of coverage. Static and object
+# libraries are not mapped. The coverage-report target writes one report per
+# library, html/, summary.txt and lcov.info under <output>/<library>/, read
+# from the library's file and every test executable mapped to it, so each
+# test's direct sources are kept. When a report cannot be produced the others
+# are still written and the target then fails, naming each failed library.
+# ==============================================================================
 
 include_guard(GLOBAL)
 include(seeker/Core)
@@ -118,7 +134,6 @@ function (seeker_coverage_init)
       -fcoverage-mapping>
     )
 
-    install(TARGETS seeker_coverage_flags EXPORT seekerTargets)
   endif ()
 
   message(STATUS "[Coverage] Enabled (LLVM ${_ver})")
@@ -134,7 +149,8 @@ endfunction ()
 # seeker_coverage_register(<test_target> <library_target>)
 #
 # Register a test:library mapping for the report. seeker_add_gtest calls it for
-# each library it instruments; a no-op without ENABLE_COVERAGE.
+# each library it instruments; a no-op without ENABLE_COVERAGE. A library that
+# coverage cannot map (see _seeker_coverage_maps) fails the configure.
 # ------------------------------------------------------------------------------
 function (seeker_coverage_register _test _lib)
   _seeker_reject_extra_arguments(seeker_coverage_register ${ARGN})
@@ -142,7 +158,49 @@ function (seeker_coverage_register _test _lib)
     return()
   endif ()
 
+  _seeker_coverage_maps(${_lib} _maps)
+  if (NOT _maps)
+    message(FATAL_ERROR "seeker_coverage_register: '${_lib}' is not a shared library "
+                        "this project builds from C or C++ sources"
+    )
+  endif ()
+
   set_property(GLOBAL APPEND PROPERTY SEEKER_COVERAGE_MAPPINGS "${_test}:${_lib}")
+endfunction ()
+
+# ------------------------------------------------------------------------------
+# _seeker_coverage_maps(<target> <out_var>)
+#
+# Set <out_var> to TRUE when coverage maps <target>: a shared library this
+# project builds (not imported, not an alias) with at least one C or C++ source.
+# ------------------------------------------------------------------------------
+function (_seeker_coverage_maps _target _out_var)
+  set(_maps FALSE)
+  if (TARGET "${_target}")
+    get_target_property(_aliased ${_target} ALIASED_TARGET)
+    get_target_property(_imported ${_target} IMPORTED)
+    get_target_property(_type ${_target} TYPE)
+    if (NOT _aliased
+        AND NOT _imported
+        AND _type STREQUAL "SHARED_LIBRARY"
+    )
+      get_target_property(_sources ${_target} SOURCES)
+      foreach (_src IN LISTS _sources)
+        get_filename_component(_ext "${_src}" LAST_EXT)
+        string(SUBSTRING "${_ext}" 1 -1 _ext)
+        if (_ext IN_LIST CMAKE_CXX_SOURCE_FILE_EXTENSIONS OR _ext IN_LIST
+                                                             CMAKE_C_SOURCE_FILE_EXTENSIONS
+        )
+          set(_maps TRUE)
+          break()
+        endif ()
+      endforeach ()
+    endif ()
+  endif ()
+  set(${_out_var}
+      ${_maps}
+      PARENT_SCOPE
+  )
 endfunction ()
 
 # ------------------------------------------------------------------------------
@@ -155,7 +213,7 @@ function (_seeker_coverage_finalize)
 
   get_property(_mappings GLOBAL PROPERTY SEEKER_COVERAGE_MAPPINGS)
   if (NOT _mappings)
-    message(STATUS "[Coverage] No mappings registered (use COVERAGE_FOR in seeker_add_gtest)")
+    message(STATUS "[Coverage] No mappings: no test links a library coverage maps")
     return()
   endif ()
 
@@ -185,29 +243,34 @@ function (_seeker_coverage_finalize)
   add_custom_target(
     coverage-clean
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${SEEKER_COVERAGE_OUTPUT_DIR}"
-    COMMAND find "${CMAKE_BINARY_DIR}" -name "*.profraw" -delete 2>/dev/null || true
+    COMMAND find "${CMAKE_BINARY_DIR}" -name "*.profraw" -delete
     COMMENT "[Coverage] Cleaning artifacts..."
     VERBATIM
   )
 endfunction ()
 
 # ------------------------------------------------------------------------------
-# Internal: Write manifest
+# Internal: Write manifest (each mapped target's file comes from $<TARGET_FILE>)
 # ------------------------------------------------------------------------------
 function (_seeker_coverage_write_manifest _file _mappings)
   set(_content "# Coverage manifest (auto-generated)\n")
   string(APPEND _content "set(COVERAGE_MAPPINGS\n")
+  set(_targets "")
   foreach (_m IN LISTS _mappings)
     string(APPEND _content "  \"${_m}\"\n")
+    string(REPLACE ":" ";" _pair "${_m}")
+    list(APPEND _targets ${_pair})
   endforeach ()
   string(APPEND _content ")\n")
+  list(REMOVE_DUPLICATES _targets)
+  foreach (_t IN LISTS _targets)
+    string(APPEND _content "set(COVERAGE_FILE_${_t} \"$<TARGET_FILE:${_t}>\")\n")
+  endforeach ()
   string(APPEND _content "set(LLVM_PROFDATA \"${SEEKER_LLVM_PROFDATA}\")\n")
   string(APPEND _content "set(LLVM_COV \"${SEEKER_LLVM_COV}\")\n")
   string(APPEND _content "set(OUTPUT_DIR \"${SEEKER_COVERAGE_OUTPUT_DIR}\")\n")
   string(APPEND _content "set(IGNORE_REGEX \"${SEEKER_COVERAGE_IGNORE_REGEX}\")\n")
   string(APPEND _content "set(BUILD_DIR \"${CMAKE_BINARY_DIR}\")\n")
-  string(APPEND _content "set(LIB_DIR \"${CMAKE_LIBRARY_OUTPUT_DIRECTORY}\")\n")
-  string(APPEND _content "set(TEST_DIR \"${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tests\")\n")
   file(
     GENERATE
     OUTPUT "${_file}"
@@ -251,61 +314,97 @@ endif ()
 
 message(STATUS "[Coverage] Merged: ${_profdata}")
 
-# Generate per-module reports
+# One report per library, read from the library and every test mapped to it,
+# so the code each test compiles directly is kept. A failed step is recorded
+# and the other libraries are still reported. stderr of show and export is
+# printed only on failure.
+set(_libs "")
 foreach (_mapping IN LISTS COVERAGE_MAPPINGS)
   string(REPLACE ":" ";" _parts "${_mapping}")
   list(GET _parts 0 _test)
   list(GET _parts 1 _lib)
+  if (NOT _lib IN_LIST _libs)
+    list(APPEND _libs ${_lib})
+  endif ()
+  list(APPEND _tests_of_${_lib} ${_test})
+endforeach ()
 
-  set(_test_exe "${TEST_DIR}/${_test}")
-  set(_lib_so "${LIB_DIR}/lib${_lib}.so")
+set(_failed "")
+list(LENGTH _libs _total)
+foreach (_lib IN LISTS _libs)
+  list(REMOVE_DUPLICATES _tests_of_${_lib})
+  set(_lib_file "${COVERAGE_FILE_${_lib}}")
+  set(_binaries "")
+  foreach (_test IN LISTS _tests_of_${_lib})
+    list(APPEND _binaries "${COVERAGE_FILE_${_test}}")
+  endforeach ()
 
-  if (NOT EXISTS "${_test_exe}")
-    message(WARNING "[Coverage] Test not found: ${_test_exe}")
+  set(_missing "")
+  foreach (_file IN LISTS _binaries _lib_file)
+    if (NOT EXISTS "${_file}")
+      list(APPEND _missing "${_file}")
+    endif ()
+  endforeach ()
+  if (_missing)
+    list(JOIN _missing " " _missing_list)
+    list(APPEND _failed "${_lib}: ${_missing_list} does not exist")
     continue()
   endif ()
 
-  if (NOT EXISTS "${_lib_so}")
-    message(WARNING "[Coverage] Library not found: ${_lib_so}")
-    continue()
-  endif ()
+  # The first test executable is the binary; the others and the library are objects
+  list(POP_FRONT _binaries _main)
+  set(_cov_args "${_main}" "-instr-profile=${_profdata}" "-ignore-filename-regex=${IGNORE_REGEX}")
+  foreach (_object IN LISTS _binaries _lib_file)
+    list(APPEND _cov_args "-object=${_object}")
+  endforeach ()
 
   set(_out "${OUTPUT_DIR}/${_lib}")
   file(MAKE_DIRECTORY "${_out}/html")
 
   # HTML report
   execute_process(
-    COMMAND "${LLVM_COV}" show "${_test_exe}"
-      "-instr-profile=${_profdata}"
-      "-format=html"
-      "-output-dir=${_out}/html"
-      "-ignore-filename-regex=${IGNORE_REGEX}"
-      "-object=${_lib_so}"
-    OUTPUT_QUIET ERROR_QUIET
+    COMMAND "${LLVM_COV}" show ${_cov_args} "-format=html" "-output-dir=${_out}/html"
+    RESULT_VARIABLE _rc
+    OUTPUT_QUIET
+    ERROR_VARIABLE _err
   )
+  if (NOT _rc EQUAL 0)
+    list(APPEND _failed "${_lib}: llvm-cov show exited ${_rc}: ${_err}")
+    continue()
+  endif ()
 
   # Text summary
   execute_process(
-    COMMAND "${LLVM_COV}" report "${_test_exe}"
-      "-instr-profile=${_profdata}"
-      "-ignore-filename-regex=${IGNORE_REGEX}"
-      "-object=${_lib_so}"
+    COMMAND "${LLVM_COV}" report ${_cov_args}
+    RESULT_VARIABLE _rc
     OUTPUT_FILE "${_out}/summary.txt"
   )
+  if (NOT _rc EQUAL 0)
+    list(APPEND _failed "${_lib}: llvm-cov report exited ${_rc}")
+    continue()
+  endif ()
 
   # LCOV for CI
   execute_process(
-    COMMAND "${LLVM_COV}" export "${_test_exe}"
-      "-instr-profile=${_profdata}"
-      "-ignore-filename-regex=${IGNORE_REGEX}"
-      "-object=${_lib_so}"
-      "-format=lcov"
+    COMMAND "${LLVM_COV}" export ${_cov_args} "-format=lcov"
+    RESULT_VARIABLE _rc
     OUTPUT_FILE "${_out}/lcov.info"
-    ERROR_QUIET
+    ERROR_VARIABLE _err
   )
+  if (NOT _rc EQUAL 0)
+    list(APPEND _failed "${_lib}: llvm-cov export exited ${_rc}: ${_err}")
+    continue()
+  endif ()
 
-  message(STATUS "[Coverage] Generated: ${_out}/html/index.html")
+  list(JOIN _tests_of_${_lib} ", " _test_list)
+  message(STATUS "[Coverage] Generated: ${_out}/html/index.html (${_test_list})")
 endforeach ()
+
+if (_failed)
+  list(LENGTH _failed _failed_count)
+  list(JOIN _failed "\n  " _failed_list)
+  message(FATAL_ERROR "[Coverage] ${_failed_count} of ${_total} report(s) failed:\n  ${_failed_list}")
+endif ()
 
 message(STATUS "[Coverage] Reports: ${OUTPUT_DIR}")
 ]=]
