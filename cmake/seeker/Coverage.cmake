@@ -3,6 +3,7 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
 
 # ------------------------------------------------------------------------------
 # Options
@@ -40,10 +41,16 @@ set_property(GLOBAL PROPERTY SEEKER_COVERAGE_MAPPINGS "")
 # ------------------------------------------------------------------------------
 # seeker_coverage_init()
 #
-# Initialize coverage infrastructure. Call once after project().
-# Creates interface library for coverage flags and locates LLVM tools.
+# With ENABLE_COVERAGE, locate llvm-profdata and llvm-cov
+# (SEEKER_COVERAGE_LLVM_VERSION), create the seeker_coverage_flags interface
+# target (Clang source-based instrumentation, Debug builds) and generate the
+# coverage-report and coverage-clean targets at the end of the configure.
+# Coverage is turned off with a warning for cross, bare-metal and non-Clang
+# builds; the configure fails when the LLVM tools are missing. Call once after
+# project().
 # ------------------------------------------------------------------------------
 function (seeker_coverage_init)
+  _seeker_reject_extra_arguments(seeker_coverage_init ${ARGN})
   if (NOT ENABLE_COVERAGE)
     return()
   endif ()
@@ -126,9 +133,11 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_coverage_register(<test_target> <library_target>)
 #
-# Register test->library mapping. Called by seeker_add_gtest when COVERAGE_FOR set.
+# Register a test:library mapping for the report. seeker_add_gtest calls it for
+# each library it instruments; a no-op without ENABLE_COVERAGE.
 # ------------------------------------------------------------------------------
 function (seeker_coverage_register _test _lib)
+  _seeker_reject_extra_arguments(seeker_coverage_register ${ARGN})
   if (NOT ENABLE_COVERAGE)
     return()
   endif ()
