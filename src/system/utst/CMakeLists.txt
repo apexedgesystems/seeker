@@ -19,14 +19,8 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerSystem
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_system
-  fmt::fmt
-  LABELS
-  diagnostics
-  system
+  TARGET TestSeekerSystem
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_system fmt::fmt
+  LABELS diagnostics system
 )

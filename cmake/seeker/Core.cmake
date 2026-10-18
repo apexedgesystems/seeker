@@ -119,7 +119,7 @@ endfunction ()
 #   TST_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/tst   general test directory
 #   README_FILE ${CMAKE_CURRENT_SOURCE_DIR}/README.md
 #
-# A leaf file adds a test directory only when its CMakeLists.txt exists.
+# seeker_add_test_subdirs() adds the test directories that exist.
 # ------------------------------------------------------------------------------
 function (seeker_module _name)
   _seeker_reject_extra_arguments(seeker_module ${ARGN})
@@ -155,6 +155,57 @@ function (seeker_module _name)
       "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
       PARENT_SCOPE
   )
+endfunction ()
+
+# ------------------------------------------------------------------------------
+# seeker_add_test_subdirs([UTST] [PTST] [DTST])
+#
+# Add the module's test directories that have a CMakeLists.txt, in the
+# top-level project only: a project that builds seeker as a subproject gets
+# no seeker tests. Each kind is the directory seeker_module() names:
+#   UTST  ${UTST_DIR}  unit tests (seeker_add_gtest, registered with CTest)
+#   PTST  ${PTST_DIR}  performance tests (seeker_add_ptest, run by hand)
+#   DTST  ${DTST_DIR}  development tests (seeker_add_devtest, run by hand)
+# Without arguments every kind is considered, so a module gains or drops a
+# tier by adding or removing its directory; given kinds limit the call to
+# those. Call it at the end of a module file, after seeker_module().
+#
+# Arguments:
+#   UTST     optional flag: consider the unit-test directory
+#   PTST     optional flag: consider the performance-test directory
+#   DTST     optional flag: consider the development-test directory
+# ------------------------------------------------------------------------------
+function (seeker_add_test_subdirs)
+  cmake_parse_arguments(TS "UTST;PTST;DTST" "" "" ${ARGN})
+  _seeker_check_arguments(seeker_add_test_subdirs TS)
+
+  set(_kinds "")
+  foreach (_kind IN ITEMS UTST PTST DTST)
+    if (TS_${_kind})
+      list(APPEND _kinds ${_kind})
+    endif ()
+  endforeach ()
+  if (NOT _kinds)
+    set(_kinds UTST PTST DTST)
+  endif ()
+
+  foreach (_kind IN LISTS _kinds)
+    if (NOT DEFINED ${_kind}_DIR)
+      message(
+        FATAL_ERROR "seeker_add_test_subdirs: ${_kind}_DIR is not set; call seeker_module() first"
+      )
+    endif ()
+  endforeach ()
+
+  if (NOT PROJECT_IS_TOP_LEVEL)
+    return()
+  endif ()
+
+  foreach (_kind IN LISTS _kinds)
+    if (EXISTS "${${_kind}_DIR}/CMakeLists.txt")
+      add_subdirectory("${${_kind}_DIR}")
+    endif ()
+  endforeach ()
 endfunction ()
 
 # ------------------------------------------------------------------------------
@@ -220,7 +271,11 @@ function (seeker_standard_optins _target)
       endif ()
     endforeach ()
     if (_cu_files)
-      seeker_clang_tidy_cuda(${_target} FILES ${_cu_files} ALLOW_FAILURE)
+      seeker_clang_tidy_cuda(
+        ${_target}
+        FILES ${_cu_files}
+        ALLOW_FAILURE
+      )
     endif ()
   endif ()
 endfunction ()

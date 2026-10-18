@@ -28,40 +28,30 @@ set(CUDA_SOURCES "${SRC_DIR}/GpuBench.cu")
 # ------------------------------------------------------------------------------
 
 seeker_add_library(
-  NAME
-  ${LIB_NAME}
-  TYPE
-  SHARED
-  INC
-  "${INC_DIR}"
-  SRC
-  ${CPP_SOURCES}
-  DEPS_PUBLIC
-  seeker_helpers
-  fmt::fmt
+  NAME ${LIB_NAME}
+  TYPE SHARED
+  INC "${INC_DIR}"
+  SRC ${CPP_SOURCES}
+  DEPS_PUBLIC seeker_helpers fmt::fmt
 )
 seeker_nvml_enable(${LIB_NAME})
 
 seeker_add_library_cuda(
-  NAME
-  ${LIB_NAME}_cuda
-  CORE
-  ${LIB_NAME}
-  SRC
-  ${CUDA_SOURCES}
-  DEPS_PUBLIC
-  fmt::fmt
+  NAME ${LIB_NAME}_cuda
+  CORE ${LIB_NAME}
+  SRC ${CUDA_SOURCES}
+  DEPS_PUBLIC fmt::fmt
 )
 
 # ------------------------------------------------------------------------------
-# Opt-ins (coverage, doxygen, UPX)
+# Opt-ins
 # ------------------------------------------------------------------------------
 
 seeker_standard_optins(${LIB_NAME})
 seeker_standard_optins(${LIB_NAME}_cuda)
 
 # ------------------------------------------------------------------------------
-# Production documentation (release builds only)
+# Documentation
 # ------------------------------------------------------------------------------
 
 seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/gpu")
@@ -70,11 +60,4 @@ seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/gpu
 # Subdirectories
 # ------------------------------------------------------------------------------
 
-if (PROJECT_IS_TOP_LEVEL)
-  if (EXISTS "${UTST_DIR}/CMakeLists.txt")
-    add_subdirectory(utst)
-  endif ()
-  if (EXISTS "${PTST_DIR}/CMakeLists.txt")
-    add_subdirectory(ptst)
-  endif ()
-endif ()
+seeker_add_test_subdirs()
