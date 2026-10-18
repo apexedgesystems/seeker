@@ -46,6 +46,7 @@ lint:
 # Project helper signatures, so helper calls are laid out as keyword and value
 # lines. Generated from the helpers; regenerate when their keywords change:
 #   cmake-genparsers -f yaml cmake/seeker/*.cmake
+# tools/cmake/check_leaf_cmake.py fails when they differ from the helpers.
 # ------------------------------------------------------------------------------
 parse:
   additional_commands:
