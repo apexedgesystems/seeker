@@ -108,6 +108,15 @@ repos:
         language: system
         files: (CMakeLists\.txt|\.cmake)$
 
+      - id: check-leaf-cmake-local
+        name: leaf CMake check (local)
+        entry: python3 tools/cmake/check_leaf_cmake.py
+        language: system
+        files: (CMakeLists\.txt|\.cmake|\.cmake-format\.yaml|check_leaf_cmake\.py)$
+        pass_filenames: false
+        require_serial: true
+        verbose: true
+
       - id: hadolint-local
         name: hadolint (local)
         entry: hadolint

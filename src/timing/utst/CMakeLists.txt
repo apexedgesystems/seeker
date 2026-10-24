@@ -14,14 +14,8 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerTiming
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_timing
-  fmt::fmt
-  LABELS
-  diagnostics
-  timing
+  TARGET TestSeekerTiming
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_timing fmt::fmt
+  LABELS diagnostics timing
 )

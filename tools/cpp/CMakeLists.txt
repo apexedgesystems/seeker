@@ -1,8 +1,5 @@
 # ==============================================================================
 # Tools: Diagnostics
-#
-# CLI tools for system diagnostics. All tools output to bin/tools/.
-# Each tool links its domain library, seeker_helpers (arg parsing), and fmt.
 # ==============================================================================
 
 include(seeker/All)
@@ -10,23 +7,12 @@ include(seeker/All)
 # ------------------------------------------------------------------------------
 # Helper Function
 # ------------------------------------------------------------------------------
-# add_diag_tool(<tool-name> <domain>)
-#
-# Creates a diagnostic tool with standard configuration:
-#   - Source: <domain>/<tool-name>.cpp
-#   - Links:  seeker_<domain>, seeker_helpers, fmt::fmt
-# ------------------------------------------------------------------------------
 
 function (add_diag_tool TOOL_NAME DOMAIN)
   seeker_add_tool(
-    NAME
-    ${TOOL_NAME}
-    SRC
-    "${CMAKE_CURRENT_SOURCE_DIR}/${DOMAIN}/${TOOL_NAME}.cpp"
-    LINK
-    seeker_${DOMAIN}
-    seeker_helpers
-    fmt::fmt
+    NAME ${TOOL_NAME}
+    SRC "${CMAKE_CURRENT_SOURCE_DIR}/${DOMAIN}/${TOOL_NAME}.cpp"
+    LINK seeker_${DOMAIN} seeker_helpers fmt::fmt
   )
 endfunction ()
 
@@ -99,64 +85,32 @@ add_diag_tool(device-can device)
 # GPU Tools (4)
 # ------------------------------------------------------------------------------
 
-# Standard GPU tools (C++ only)
-function (add_gpu_tool TOOL_NAME)
-  seeker_add_tool(
-    NAME
-    ${TOOL_NAME}
-    SRC
-    "${CMAKE_CURRENT_SOURCE_DIR}/gpu/${TOOL_NAME}.cpp"
-    LINK
-    seeker_gpu
-    seeker_helpers
-    fmt::fmt
-  )
-endfunction ()
+add_diag_tool(gpu-info gpu)
+add_diag_tool(gpu-stat gpu)
+add_diag_tool(gpu-rtcheck gpu)
 
-add_gpu_tool(gpu-info)
-add_gpu_tool(gpu-stat)
-add_gpu_tool(gpu-rtcheck)
-
-# GPU benchmark tool (CUDA) - only built when CUDA is available
-if (CMAKE_CUDA_COMPILER)
-  seeker_add_tool(
-    NAME
-    gpu-bench
-    SRC
-    "${CMAKE_CURRENT_SOURCE_DIR}/gpu/gpu-bench.cu"
-    LINK
-    seeker_gpu
-    seeker_gpu_cuda
-    seeker_helpers
-    fmt::fmt
-  )
-  set_source_files_properties(
-    "${CMAKE_CURRENT_SOURCE_DIR}/gpu/gpu-bench.cu" PROPERTIES LANGUAGE CUDA
-  )
-endif ()
-
-# ------------------------------------------------------------------------------
-# Production documentation (release builds only)
-# ------------------------------------------------------------------------------
-
-foreach (
-  _domain
-  cpu
-  memory
-  storage
-  network
-  timing
-  system
-  device
-  gpu
+seeker_add_tool(
+  NAME gpu-bench
+  SRC "${CMAKE_CURRENT_SOURCE_DIR}/gpu/gpu-bench.cu"
+  LINK seeker_gpu seeker_gpu_cuda seeker_helpers fmt::fmt
+  REQUIRES CUDA
 )
-  seeker_install_docs(
-    "${CMAKE_CURRENT_SOURCE_DIR}/${_domain}/README.md" DESTINATION "tools/${_domain}"
-  )
-endforeach ()
 
 # ------------------------------------------------------------------------------
-# Finalize (aggregate seeker_cpp_tools target)
+# Documentation
+# ------------------------------------------------------------------------------
+
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/cpu/README.md" DESTINATION "tools/cpu")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/memory/README.md" DESTINATION "tools/memory")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/storage/README.md" DESTINATION "tools/storage")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/network/README.md" DESTINATION "tools/network")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/timing/README.md" DESTINATION "tools/timing")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/system/README.md" DESTINATION "tools/system")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/device/README.md" DESTINATION "tools/device")
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/gpu/README.md" DESTINATION "tools/gpu")
+
+# ------------------------------------------------------------------------------
+# Aggregate Target
 # ------------------------------------------------------------------------------
 
 seeker_finalize_cpp_tools()

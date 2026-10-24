@@ -3,44 +3,69 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
+include(seeker/Coverage)
 
 # ------------------------------------------------------------------------------
 # seeker_add_gtest(...)
 #
-# Add a GoogleTest-based test target with coverage and timing controls.
+# GoogleTest executable in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tests. Its tests
+# are found in its sources (gtest_add_tests) and registered with CTest. CUDA
+# sources are compiled through seeker_cuda_sources when the CUDA toolkit is
+# found and the CUDA language enabled, and otherwise left out with their tests.
+# Skipped on bare-metal builds.
 #
-# Coverage is automatic: any compiled project library in LINK is instrumented
-# when ENABLE_COVERAGE=ON. Use COVERAGE_FOR only to override auto-detection.
+# With ENABLE_COVERAGE, the test is mapped to each library in LINK that
+# coverage maps (a shared library this project builds from C or C++ sources;
+# not header-only, CUDA-only, imported or alias targets), or to COVERAGE_FOR
+# instead. A mapped test and its libraries are instrumented, a
+# <TARGET>_coverage test labelled Coverage runs the executable, and each
+# mapping is registered for the report. For a test that is not skipped, a
+# COVERAGE_FOR that coverage cannot map fails the configure, with or without
+# ENABLE_COVERAGE.
+#
+# Timed tests get the Timing label and run serially, unless RESOURCE_LOCK
+# already serializes them. TIMING_TESTS names and TIMING_PATTERNS that match no
+# test (for example a CUDA test left out without CUDA) select nothing.
 #
 # Arguments:
-#   TARGET          <n>              required
-#   SOURCES         <src...>         required
-#   CUDA            <cu...>          optional
-#   LINK            <libs...>        optional
-#   LINK_OPTIONS    <options...>     optional (linker options for the test target)
-#   COVERAGE_FOR    <lib_target>     optional (overrides auto-detection)
-#   INC             <dir>            optional
-#   LABELS          <labels...>      optional
-#   WORKING_DIR     <dir>            optional
-#   RESOURCE_LOCK   <n>              optional
-#   NO_COVERAGE                      optional flag (skip coverage)
-#   TIMING_ALL                       optional flag
-#   TIMING_TESTS    <names...>       optional
-#   TIMING_PATTERNS <regex...>       optional
-#   REQUIRES_THREADS <n>             optional (min hardware threads required)
+#   TARGET           <name>           required
+#   SOURCES          <files...>       required
+#   CUDA             <files...>       optional, CUDA sources
+#   LINK             <targets...>     optional, linked PRIVATE with
+#                                     GTest::gtest_main and GTest::gmock
+#   LINK_OPTIONS     <options...>     optional, PRIVATE linker options
+#   INC              <dir>            optional, PRIVATE include directory
+#   LABELS           <labels...>      optional, CTest labels of every test
+#   WORKING_DIR      <dir>            optional (default: the binary directory)
+#   RESOURCE_LOCK    <name>           optional, CTest RESOURCE_LOCK of every test
+#   REQUIRES_THREADS <count>          optional, disables the tests on a host
+#                                     with fewer hardware threads
+#   TIMING_ALL                        optional flag: every test is timed
+#   TIMING_TESTS     <names...>       optional, timed tests (Suite.Test)
+#   TIMING_PATTERNS  <regex...>       optional, timed tests by name pattern
+#   COVERAGE_FOR     <lib_target>     optional, the library to map instead of
+#                                     those found in LINK
+#   NO_COVERAGE                       optional flag: no coverage for this test
 # ------------------------------------------------------------------------------
 function (seeker_add_gtest)
-  # Skip on bare-metal
-  if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
-    return()
-  endif ()
-
   cmake_parse_arguments(
     GT "TIMING_ALL;NO_COVERAGE"
     "TARGET;INC;WORKING_DIR;RESOURCE_LOCK;COVERAGE_FOR;REQUIRES_THREADS"
     "SOURCES;CUDA;LINK;LINK_OPTIONS;LABELS;TIMING_TESTS;TIMING_PATTERNS" ${ARGN}
   )
-  seeker_require(GT_TARGET GT_SOURCES)
+  _seeker_check_arguments(seeker_add_gtest GT REQUIRED TARGET SOURCES)
+  if (DEFINED GT_REQUIRES_THREADS AND NOT GT_REQUIRES_THREADS MATCHES "^[1-9][0-9]*$")
+    message(
+      FATAL_ERROR
+        "seeker_add_gtest: REQUIRES_THREADS must be a positive integer, not '${GT_REQUIRES_THREADS}'"
+    )
+  endif ()
+
+  # Skip on bare-metal
+  if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    return()
+  endif ()
 
   add_executable(${GT_TARGET})
   target_sources(${GT_TARGET} PRIVATE ${GT_SOURCES})
@@ -77,60 +102,37 @@ function (seeker_add_gtest)
     ${GT_TARGET} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tests"
   )
 
-  # Coverage instrumentation (auto-detect from LINK or use COVERAGE_FOR override)
+  # Coverage: map the libraries coverage can report, instrument them and the test
+  if (DEFINED GT_COVERAGE_FOR)
+    _seeker_coverage_maps(${GT_COVERAGE_FOR} _maps)
+    if (NOT _maps)
+      message(FATAL_ERROR "seeker_add_gtest: COVERAGE_FOR '${GT_COVERAGE_FOR}' is not a shared "
+                          "library this project builds from C or C++ sources"
+      )
+    endif ()
+  endif ()
+
   set(_coverage_libs "")
   if (GT_NO_COVERAGE)
-    # Skip coverage entirely (used by seeker_add_ptest)
+    # No instrumentation, no coverage test, no mapping
   elseif (ENABLE_COVERAGE AND TARGET seeker_coverage_flags)
-    if (GT_COVERAGE_FOR)
-      # Explicit override
+    if (DEFINED GT_COVERAGE_FOR)
       set(_coverage_libs ${GT_COVERAGE_FOR})
     else ()
-      # Auto-detect from LINK: filter out imported and aliased targets
       foreach (_lib IN LISTS GT_LINK)
-        if (NOT TARGET ${_lib})
-          continue()
+        _seeker_coverage_maps(${_lib} _maps)
+        if (_maps)
+          list(APPEND _coverage_libs ${_lib})
         endif ()
-        # Skip aliased targets (seeker::* or any ALIAS)
-        if (_lib MATCHES "^seeker::")
-          continue()
-        endif ()
-        get_target_property(_aliased ${_lib} ALIASED_TARGET)
-        if (_aliased)
-          continue()
-        endif ()
-        # Skip imported targets (third-party like fmt::fmt, GTest::*)
-        get_target_property(_imported ${_lib} IMPORTED)
-        if (_imported)
-          continue()
-        endif ()
-        # Skip header-only targets: no objects of their own to instrument or map
-        get_target_property(_type ${_lib} TYPE)
-        if (_type STREQUAL "INTERFACE_LIBRARY")
-          continue()
-        endif ()
-        list(APPEND _coverage_libs ${_lib})
       endforeach ()
     endif ()
 
-    # Instrument test executable and libraries
+    # Build-only usage requirement: never part of an exported interface
     if (_coverage_libs)
-      target_link_libraries(${GT_TARGET} PRIVATE seeker::coverage_flags)
-
+      target_link_libraries(${GT_TARGET} PRIVATE $<BUILD_INTERFACE:seeker::coverage_flags>)
       foreach (_lib IN LISTS _coverage_libs)
-        if (TARGET ${_lib})
-          get_target_property(_lib_type ${_lib} TYPE)
-          if (_lib_type STREQUAL "INTERFACE_LIBRARY")
-            target_link_libraries(${_lib} INTERFACE seeker::coverage_flags)
-          else ()
-            target_link_libraries(${_lib} PRIVATE seeker::coverage_flags)
-          endif ()
-
-          # Register mapping for report generation
-          if (COMMAND seeker_coverage_register)
-            seeker_coverage_register(${GT_TARGET} ${_lib})
-          endif ()
-        endif ()
+        target_link_libraries(${_lib} PRIVATE $<BUILD_INTERFACE:seeker::coverage_flags>)
+        seeker_coverage_register(${GT_TARGET} ${_lib})
       endforeach ()
     endif ()
   endif ()
@@ -257,32 +259,28 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_add_ptest(...)
 #
-# Add a performance test executable that is built but NOT registered with CTest.
-# Performance tests are for benchmarking and should be run manually.
-#
-# The executable is placed in bin/ptests/ and can be run manually with:
-#   ./build/bin/ptests/TestName --csv results.csv
-#
-# Features:
-#   - Output to bin/ptests/
-#   - Auto-links gperftools if available
+# Performance test executable in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ptests,
+# built but not registered with CTest: run it by hand, for example
+#   build/native-linux-debug/bin/ptests/<TARGET> --csv results.csv
+# Links GoogleTest and, when found, the gperftools profiler and tcmalloc; the
+# build RPATH reaches the library output directory. CUDA sources are compiled
+# when CUDA is active and left out otherwise. Skipped on bare-metal builds.
 #
 # Arguments:
-#   TARGET          <n>              required
-#   SOURCES         <src...>         required
-#   CUDA            <cu...>          optional
-#   LINK            <libs...>        optional
-#   INC             <dir>            optional
+#   TARGET          <name>           required
+#   SOURCES         <files...>       required
+#   CUDA            <files...>       optional, CUDA sources
+#   LINK            <targets...>     optional, linked PRIVATE
+#   INC             <dir>            optional, PRIVATE include directory
 # ------------------------------------------------------------------------------
 function (seeker_add_ptest)
+  cmake_parse_arguments(PT "" "TARGET;INC" "SOURCES;CUDA;LINK" ${ARGN})
+  _seeker_check_arguments(seeker_add_ptest PT REQUIRED TARGET SOURCES)
+
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
     return()
   endif ()
-
-  # Note: LABELS is parsed but ignored (ptests not registered with CTest)
-  cmake_parse_arguments(PT "" "TARGET;INC" "SOURCES;CUDA;LINK;LABELS" ${ARGN})
-  seeker_require(PT_TARGET PT_SOURCES)
 
   add_executable(${PT_TARGET})
   target_sources(${PT_TARGET} PRIVATE ${PT_SOURCES})
@@ -373,28 +371,28 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_add_devtest(...)
 #
-# Add a development/integration test executable that is built but NOT registered
-# with CTest. These tests require manual execution (e.g., external data files,
-# special hardware).
-#
-# The executable is placed in bin/dtests/ and can be run manually with:
-#   ./build/bin/dtests/TestName --gtest_filter="*Pattern*"
+# Development test executable in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dtests,
+# built but not registered with CTest, for tests that need data files or
+# hardware a CTest run does not have: run it by hand, for example
+#   build/native-linux-debug/bin/dtests/<TARGET> --gtest_filter="*Pattern*"
+# Links GoogleTest. CUDA sources are compiled when CUDA is active and left out
+# otherwise. Skipped on bare-metal builds.
 #
 # Arguments:
-#   TARGET          <n>              required
-#   SOURCES         <src...>         required
-#   CUDA            <cu...>          optional
-#   LINK            <libs...>        optional
-#   INC             <dir>            optional
+#   TARGET          <name>           required
+#   SOURCES         <files...>       required
+#   CUDA            <files...>       optional, CUDA sources
+#   LINK            <targets...>     optional, linked PRIVATE
+#   INC             <dir>            optional, PRIVATE include directory
 # ------------------------------------------------------------------------------
 function (seeker_add_devtest)
+  cmake_parse_arguments(DT "" "TARGET;INC" "SOURCES;CUDA;LINK" ${ARGN})
+  _seeker_check_arguments(seeker_add_devtest DT REQUIRED TARGET SOURCES)
+
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
     return()
   endif ()
-
-  cmake_parse_arguments(DT "" "TARGET;INC" "SOURCES;CUDA;LINK" ${ARGN})
-  seeker_require(DT_TARGET DT_SOURCES)
 
   add_executable(${DT_TARGET})
   target_sources(${DT_TARGET} PRIVATE ${DT_SOURCES})

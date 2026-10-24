@@ -298,7 +298,8 @@ Tools are installed to `<prefix>/bin/` via `make install`.
 
 ## 5. Building
 
-Run `make help` for the full list of targets.
+Run `make help` for the full list of targets. To add a library, test or tool,
+follow the [CMake helper guide](cmake/seeker/README.md).
 
 ### Docker (Recommended)
 
