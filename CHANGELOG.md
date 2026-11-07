@@ -6,6 +6,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 [#8]: https://github.com/apexedgesystems/seeker/pull/8
 [#9]: https://github.com/apexedgesystems/seeker/pull/9
+[#10]: https://github.com/apexedgesystems/seeker/pull/10
 
 ---
 
@@ -88,6 +89,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   honours the request (not on tmpfs)
 - Project CMake helpers validate their arguments and own every target's
   mechanics; leaf CMake files are declarative ([#9])
+- The CMake helper layer follows the shared build-targets contract: a target
+  names the optional targets it needs and is skipped, and listed once in the
+  configure summary, when one is absent; coverage leaves fetched dependencies
+  out; the ccache launcher follows its option; every library linking NVML
+  carries the NVML RPATH ([#10])
 
 ### Fixed
 
