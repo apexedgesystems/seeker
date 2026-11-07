@@ -37,19 +37,26 @@ endif ()
 # _seeker_skip. An unknown requirement fails the configure on every platform.
 #
 # Requirements:
-#   POSIX     hosted (not bare-metal) platform
-#   PTHREADS  hosted platform (POSIX threads)
+#   POSIX     hosted UNIX platform (UNIX, not bare-metal)
 #   LINUX     hosted platform with CMAKE_SYSTEM_NAME Linux
 #   CUDA      CUDA toolkit found and the CUDA language enabled
+# PTHREADS is retired: naming it fails the configure with the migration.
 # ------------------------------------------------------------------------------
 function (_seeker_platform_supports _out_var _helper _target _baremetal_ok)
   set(_missing "")
   foreach (_req IN LISTS ARGN)
-    if (_req STREQUAL "POSIX" OR _req STREQUAL "PTHREADS")
-      set(_met TRUE)
-      if (SEEKER_PLATFORM_BAREMETAL)
-        set(_met FALSE)
+    if (_req STREQUAL "POSIX")
+      set(_met FALSE)
+      if (UNIX AND NOT SEEKER_PLATFORM_BAREMETAL)
+        set(_met TRUE)
       endif ()
+    elseif (_req STREQUAL "PTHREADS")
+      message(
+        FATAL_ERROR
+          "${_helper}: PTHREADS is retired; POSIX means a hosted platform. Link "
+          "Threads::Threads through DEPS_PUBLIC, DEPS_PRIVATE or DEPS_INTERFACE on a library, "
+          "LINK on a test, tool or app."
+      )
     elseif (_req STREQUAL "LINUX")
       set(_met FALSE)
       if (NOT SEEKER_PLATFORM_BAREMETAL AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -62,7 +69,7 @@ function (_seeker_platform_supports _out_var _helper _target _baremetal_ok)
       endif ()
     else ()
       message(FATAL_ERROR "${_helper}: unknown requirement '${_req}' for '${_target}' "
-                          "(supported: POSIX PTHREADS LINUX CUDA)"
+                          "(supported: POSIX LINUX CUDA)"
       )
     endif ()
     if (NOT _met)
@@ -102,7 +109,7 @@ endfunction ()
 #   DEPS_INTERFACE  <targets...>       optional, linked INTERFACE
 #   DEFS            <defs...>          optional, INTERFACE compile definitions
 #   FEATURES        <features...>      optional, INTERFACE compile features
-#   REQUIRES        <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES        <requirements...>  optional (POSIX, LINUX, CUDA)
 #   REQUIRES_TARGETS <targets...>      optional, targets that must exist;
 #                                      checked, not linked (name them in
 #                                      DEPS_INTERFACE as well)
@@ -175,7 +182,7 @@ endfunction ()
 #   SRC          <files...>         required
 #   DEPS_PUBLIC  <targets...>       optional, linked PUBLIC
 #   DEPS_PRIVATE <targets...>       optional, linked PRIVATE
-#   REQUIRES     <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES     <requirements...>  optional (POSIX, LINUX, CUDA)
 #   REQUIRES_TARGETS <targets...>   optional, targets that must exist; checked,
 #                                   not linked (name them in DEPS_PUBLIC or
 #                                   DEPS_PRIVATE as well)
@@ -341,7 +348,7 @@ endfunction ()
 #   INC         <dirs...>          optional, PRIVATE include directories
 #   DEFS        <defs...>          optional, PRIVATE compile definitions
 #   FEATURES    <features...>      optional, PRIVATE compile features
-#   REQUIRES    <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES    <requirements...>  optional (POSIX, LINUX, CUDA)
 #   REQUIRES_TARGETS <targets...>  optional, targets that must exist; linked
 #                                  PRIVATE
 #   BAREMETAL                      optional flag: also built on bare-metal
@@ -415,7 +422,7 @@ endfunction ()
 #   INC         <dirs...>          optional, PRIVATE include directories
 #   DEFS        <defs...>          optional, PRIVATE compile definitions
 #   FEATURES    <features...>      optional, PRIVATE compile features
-#   REQUIRES    <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES    <requirements...>  optional (POSIX, LINUX, CUDA)
 #   REQUIRES_TARGETS <targets...>  optional, targets that must exist; linked
 #                                  PRIVATE
 #   BAREMETAL                      optional flag: also built on bare-metal

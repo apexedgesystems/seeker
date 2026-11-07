@@ -215,8 +215,6 @@ CUDA`, also when the value is an empty variable), a missing required keyword,
 an extra argument to a helper with positional parameters, an unknown
 requirement, a `TYPE` other than `STATIC` or `SHARED`, an unknown test
 directory kind and a `REQUIRES_THREADS` that is not a positive integer.
-`seeker_print_config_summary()`, which the root file calls, takes no arguments
-and checks none.
 
 A referenced target is checked where the helper acts. `seeker_standard_optins`,
 `seeker_nvml_enable`, `seeker_clang_tidy_cuda`, `seeker_cupti_enable` and
@@ -246,10 +244,13 @@ test executables too.
 
 | Requirement | Holds on                                             |
 | ----------- | ---------------------------------------------------- |
-| `POSIX`     | a hosted (not bare-metal) platform                   |
-| `PTHREADS`  | a hosted platform                                    |
+| `POSIX`     | a hosted UNIX platform (`UNIX`, not bare-metal)      |
 | `LINUX`     | a hosted platform with `CMAKE_SYSTEM_NAME Linux`     |
 | `CUDA`      | the CUDA toolkit found and the CUDA language enabled |
+
+`PTHREADS` is retired, and naming it fails the configure with the migration:
+POSIX means a hosted platform; link `Threads::Threads` through `DEPS_PUBLIC`,
+`DEPS_PRIVATE` or `DEPS_INTERFACE` on a library, `LINK` on a test, tool or app.
 
 `REQUIRES_TARGETS` names targets that must exist when the helper runs, so a
 target built only with an optional package declares the package's target

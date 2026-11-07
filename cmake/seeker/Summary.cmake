@@ -3,6 +3,7 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
 
 # ------------------------------------------------------------------------------
 # Internal helpers
@@ -211,9 +212,11 @@ endfunction ()
 #
 # Emit configuration banner showing build settings, compilers, and CUDA status,
 # and at the end of the caller's directory, once the target helpers have run,
-# the Skipped targets block (_seeker_print_skipped_targets).
+# the Skipped targets block (_seeker_print_skipped_targets). Takes no
+# arguments; an argument fails the configure.
 # ------------------------------------------------------------------------------
 function (seeker_print_config_summary)
+  _seeker_reject_extra_arguments(seeker_print_config_summary ${ARGN})
   # Build type
   if (CMAKE_CONFIGURATION_TYPES)
     _seeker_join(CMAKE_CONFIGURATION_TYPES ", " _cfgs)
