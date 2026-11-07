@@ -25,7 +25,9 @@ endif ()
 # into ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html. SRC, TST, DOCS, TOOLS,
 # TEMPLATES and README default to src, tst, docs, tools, templates and README.md
 # under the current source directory when those exist, INC to inc; EXTRA_DIRS
-# adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests. A
+# adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests.
+# The Doxyfile comes from the layer's template, Doxyfile.common.in beside this
+# module, or from the project's docs/Doxyfile.common.in when that exists. A
 # no-op unless PROJECT_BUILD_DOCS is ON; a warning and no docs target when
 # Doxygen is not found.
 #
@@ -105,7 +107,12 @@ function (seeker_add_doxygen _target)
   set(EXTRA_DIRS "${DOX_EXTRA_DIRS}")
   set(README_FILE "${DOX_README}")
 
-  configure_file("${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in" "${DOCS_BASE}/Doxyfile" @ONLY)
+  # Doxyfile template: the layer's, or the project's override
+  set(_template "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Doxyfile.common.in")
+  if (EXISTS "${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in")
+    set(_template "${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in")
+  endif ()
+  configure_file("${_template}" "${DOCS_BASE}/Doxyfile" @ONLY)
 
   set(_docs_stamp "${DOCS_BASE}/.doxygen.stamp")
   set(_deps "${DOCS_BASE}/Doxyfile")

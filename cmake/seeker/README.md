@@ -409,6 +409,10 @@ Called by the helpers above; a leaf file rarely needs them.
 | `seeker_coverage_init()`, `seeker_coverage_register(<test> <library>)` | none                                                                                                |
 | `seeker_guard(<target>)`, `seeker_is_cuda_target(<target> <out_var>)`  | none                                                                                                |
 
+`seeker_add_doxygen` writes each Doxyfile from `Doxyfile.common.in` in this
+directory, part of the layer; a project's `docs/Doxyfile.common.in` replaces
+it.
+
 Each helper's comment block in its module lists its arguments and states what
 it does.
 
