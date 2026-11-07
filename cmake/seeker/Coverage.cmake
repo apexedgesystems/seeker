@@ -32,13 +32,17 @@ option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 
 # The LLVM tools follow the compiler: Clang N writes the profiles that
 # llvm-profdata-N and llvm-cov-N read. A cache holding the earlier default, a
-# fixed "21", takes the current one; any other value is kept.
+# fixed "21", takes the current one and drops the tool paths cached with it, so
+# the tools are searched again with the new suffix (CMake does not repeat a
+# search whose result is cached); any other value is kept.
 set(_seeker_llvm_version "")
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION MATCHES "^([0-9]+)")
   set(_seeker_llvm_version "${CMAKE_MATCH_1}")
 endif ()
 if (SEEKER_COVERAGE_LLVM_VERSION STREQUAL "21")
   unset(SEEKER_COVERAGE_LLVM_VERSION CACHE)
+  unset(SEEKER_LLVM_PROFDATA CACHE)
+  unset(SEEKER_LLVM_COV CACHE)
 endif ()
 set(SEEKER_COVERAGE_LLVM_VERSION
     "${_seeker_llvm_version}"
