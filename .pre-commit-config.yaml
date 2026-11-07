@@ -130,7 +130,7 @@ repos:
         name: leaf CMake check (local)
         entry: python3 tools/cmake/check_leaf_cmake.py
         language: system
-        files: (CMakeLists\.txt|\.cmake|\.cmake-format\.yaml|check_leaf_cmake\.py)$
+        files: (CMakeLists\.txt|\.cmake|\.cmake-format\.yaml|check_leaf_cmake\.py|gen_helper_reference\.py|cmake/seeker/README\.md)$
         pass_filenames: false
         require_serial: true
         verbose: true

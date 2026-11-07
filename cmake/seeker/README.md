@@ -273,148 +273,447 @@ skipped target once, with its reason, in a `Skipped targets` block at the end
 of the configure; with `SEEKER_TARGETS_VERBOSE` each skip is also printed
 where it happens.
 
-### Libraries
+<!-- helper reference: rendered by tools/cmake/gen_helper_reference.py -->
 
-`seeker_add_library(NAME TYPE INC SRC ...)`: compiled library with a `seeker::`
-alias; a shared library gets `VERSION` and `SOVERSION` from the project version.
+Rendered from the comment block above each public helper by
+`tools/cmake/gen_helper_reference.py`, grouped by helper file: the call form,
+the first paragraph of the description and the arguments; the rest of the
+description is in the block. Edit the comment block and rerun the script; the
+leaf check fails while this section and the blocks differ.
+
+### `Core.cmake`
+
+#### `seeker_guard`
+
+`seeker_guard(<target>)`
+
+Fail the configure when `<target>` does not exist.
+
+#### `seeker_module`
+
+`seeker_module(<name>)`
+
+Set the module variables a leaf file uses, in the caller's scope:
+
+```text
+LIB_NAME    <name>
+SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/src
+INC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/inc
+UTST_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/utst  unit tests (seeker_add_gtest,
+                                              registered with CTest)
+PTST_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/ptst  performance tests
+                                              (seeker_add_ptest, run by hand)
+DTST_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/dtst  development tests
+                                              (seeker_add_devtest, run by hand)
+README_FILE ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+```
+
+#### `seeker_add_test_subdirs`
+
+`seeker_add_test_subdirs([UTST] [PTST] [DTST])`
+
+Add the module's test directories that have a `CMakeLists.txt`, in the
+top-level project only: a project that builds seeker as a subproject gets
+no seeker tests. Each kind is the directory `seeker_module()` names:
+
+```text
+UTST  ${UTST_DIR}  unit tests (seeker_add_gtest, registered with CTest)
+PTST  ${PTST_DIR}  performance tests (seeker_add_ptest, run by hand)
+DTST  ${DTST_DIR}  development tests (seeker_add_devtest, run by hand)
+```
+
+Without arguments every kind is considered, so a module gains or drops a
+tier by adding or removing its directory; given kinds limit the call to
+those. Call it at the end of a module file, after `seeker_module()`.
+
+| Argument | Value | Notes                                                  |
+| -------- | ----- | ------------------------------------------------------ |
+| `UTST`   |       | optional flag: consider the unit-test directory        |
+| `PTST`   |       | optional flag: consider the performance-test directory |
+| `DTST`   |       | optional flag: consider the development-test directory |
+
+#### `seeker_is_cuda_target`
+
+`seeker_is_cuda_target(<target> <out_var>)`
+
+Set `<out_var>` to `TRUE` if `<target>` has `.cu` or `.cuh` sources, `FALSE` otherwise.
+
+#### `seeker_standard_optins`
+
+`seeker_standard_optins(<target>)`
+
+Attach the opt-in tooling to a library target:
+
+```text
+- Doxygen docs (seeker_add_doxygen; PROJECT_BUILD_DOCS)
+- a UPX copy (seeker_add_upx_copy; ENABLE_UPX, release builds, executables
+  and, with UPX_COMPRESS_SHARED, shared libraries)
+- clang-tidy over the target's .cu files (seeker_clang_tidy_cuda;
+  ENABLE_CLANG_TIDY)
+```
+
+### `Coverage.cmake`
+
+#### `seeker_coverage_init`
+
+`seeker_coverage_init()`
+
+With `ENABLE_COVERAGE`, locate llvm-profdata and llvm-cov
+(`SEEKER_COVERAGE_LLVM_VERSION`, by default the major version of the Clang
+that compiles), create the `seeker_coverage_flags` interface
+target (Clang source-based instrumentation, Debug builds) and generate the
+coverage-report and coverage-clean targets at the end of the configure.
+Coverage is turned off with a warning for cross, bare-metal and non-Clang
+builds; the configure fails when the `LLVM` tools are missing. Call once after
+`project()`.
+
+#### `seeker_coverage_register`
+
+`seeker_coverage_register(<test_target> <library_target>)`
+
+Register a test:library mapping for the report. `seeker_add_gtest` calls it for
+each library it instruments; a no-op without `ENABLE_COVERAGE`. A library that
+coverage cannot map (see `_seeker_coverage_maps`) fails the configure.
+
+### `Cuda.cmake`
+
+#### `seeker_cuda_sources`
+
+`seeker_cuda_sources(<target> FILES <files...> [NO_CUDART] [SEPARABLE] [RESOLVE_DEVICE_SYMBOLS] [DEFINE <name>])`
+
+Add `CUDA` sources to an existing target; a no-op unless the `CUDA` toolkit is
+found and the `CUDA` language enabled. Separable compilation and device-symbol
+resolution are `OFF` unless `SEPARABLE` or `RESOLVE_DEVICE_SYMBOLS` is given. The
+target gets the compile definition `<name>=1` (`DEFINE`, default `SEEKER_HAS_CUDA`)
+and links `CUDA::cudart` unless `NO_CUDART`, `PRIVATE` (`INTERFACE` for an `INTERFACE`
+target).
+
+| Argument                 | Value        | Notes                                |
+| ------------------------ | ------------ | ------------------------------------ |
+| `FILES`                  | `<files...>` | required                             |
+| `DEFINE`                 | `<name>`     | optional (default `SEEKER_HAS_CUDA`) |
+| `NO_CUDART`              |              | optional flag                        |
+| `SEPARABLE`              |              | optional flag                        |
+| `RESOLVE_DEVICE_SYMBOLS` |              | optional flag                        |
+
+#### `seeker_nvml_enable`
+
+`seeker_nvml_enable(<target>)`
+
+Enable `NVML` usage when libnvidia-ml and `nvml.h` are available: links the
+library, adds its include directory and defines `COMPAT_NVML_AVAILABLE=1`;
+defines `COMPAT_NVML_AVAILABLE=0` when `NVML` is missing and on bare-metal
+builds. `PUBLIC` (`INTERFACE` for an `INTERFACE` target). The search runs once and
+is cached, and every call that links the library adds its directory to the
+`BUILD_RPATH` and `INSTALL_RPATH` of a target that is not `INTERFACE`, unless the
+library is a stub (its real path is in a stubs directory): a stub is for
+linking only, and the driver's library is found at run time. A target a
+factory skipped on this platform is ignored; any other name that is not a
+target fails the configure.
+
+#### `seeker_cupti_enable`
+
+`seeker_cupti_enable(<target>)`
+
+Enable `CUPTI` usage when libcupti is available: links the library, adds the
+`CUPTI` include directory and defines `COMPAT_CUPTI_AVAILABLE=1`; defines
+`COMPAT_CUPTI_AVAILABLE=0` when `CUPTI` or the `CUDA` toolkit is missing. `PUBLIC`
+(`INTERFACE` for an `INTERFACE` target). `<target>` must exist.
+
+### `Summary.cmake`
+
+#### `seeker_print_config_summary`
+
+`seeker_print_config_summary()`
+
+Emit configuration banner showing build settings, compilers, and `CUDA` status,
+and at the end of the caller's directory, once the target helpers have run,
+the Skipped targets block (`_seeker_print_skipped_targets`). Takes no
+arguments; an argument fails the configure.
+
+### `Targets.cmake`
+
+#### `seeker_add_interface_library`
+
+`seeker_add_interface_library(...)`
+
+Header-only library: an `INTERFACE` target and its `seeker::` alias, carrying the
+include directory, dependencies, definitions and features to its consumers.
 The target and the headers under `INC` are installed and exported in
-`seekerTargets`.
+seekerTargets unless `NO_INSTALL` is given. Skipped on bare-metal builds unless
+`BAREMETAL` is given, when a requirement does not hold, and when a
+`REQUIRES_TARGETS` target does not exist.
 
-| Argument           | Value                | Notes                                                             |
-| ------------------ | -------------------- | ----------------------------------------------------------------- |
-| `NAME`             | target               | required                                                          |
-| `TYPE`             | `STATIC` or `SHARED` | required; `SHARED` becomes `STATIC` on bare-metal                 |
-| `INC`              | directory            | required; public, with the project root in the build tree         |
-| `SRC`              | files                | required                                                          |
-| `DEPS_PUBLIC`      | targets              | linked `PUBLIC`                                                   |
-| `DEPS_PRIVATE`     | targets              | linked `PRIVATE`                                                  |
-| `REQUIRES`         | requirements         | see above                                                         |
-| `REQUIRES_TARGETS` | targets              | must exist; checked, not linked (see above)                       |
-| `OUTPUT_NAME`      | file stem            | default `${PROJECT_NAME}_<NAME>`, or `NAME` when already prefixed |
-| `BAREMETAL`        | flag                 | also built on bare-metal                                          |
+| Argument           | Value               | Notes                                                                                          |
+| ------------------ | ------------------- | ---------------------------------------------------------------------------------------------- |
+| `NAME`             | `<target>`          | required                                                                                       |
+| `INC`              | `<include_dir>`     | required                                                                                       |
+| `DEPS_INTERFACE`   | `<targets...>`      | optional, linked `INTERFACE`                                                                   |
+| `DEFS`             | `<defs...>`         | optional, `INTERFACE` compile definitions                                                      |
+| `FEATURES`         | `<features...>`     | optional, `INTERFACE` compile features                                                         |
+| `REQUIRES`         | `<requirements...>` | optional (`POSIX`, `LINUX`, `CUDA`)                                                            |
+| `REQUIRES_TARGETS` | `<targets...>`      | optional, targets that must exist; checked, not linked (name them in `DEPS_INTERFACE` as well) |
+| `BAREMETAL`        |                     | optional flag: also built on bare-metal                                                        |
+| `NO_INSTALL`       |                     | optional flag: neither installed nor exported (test support, build-only)                       |
 
-`seeker_add_interface_library(NAME INC ...)`: header-only `INTERFACE` library
-with a `seeker::` alias, installed and exported unless `NO_INSTALL`.
+#### `seeker_add_library`
 
-| Argument           | Value        | Notes                                         |
-| ------------------ | ------------ | --------------------------------------------- |
-| `NAME`             | target       | required                                      |
-| `INC`              | directory    | required                                      |
-| `DEPS_INTERFACE`   | targets      | linked `INTERFACE`                            |
-| `DEFS`             | definitions  | `INTERFACE` compile definitions               |
-| `FEATURES`         | features     | `INTERFACE` compile features                  |
-| `REQUIRES`         | requirements | see above                                     |
-| `REQUIRES_TARGETS` | targets      | must exist; checked, not linked (see above)   |
-| `BAREMETAL`        | flag         | also built on bare-metal                      |
-| `NO_INSTALL`       | flag         | neither installed nor exported (test support) |
+`seeker_add_library(...)`
 
-`seeker_add_library_cuda(NAME SRC ...)`: CUDA sidecar of a CPU library. With
-CUDA, a compiled library whose sources go through `seeker_cuda_sources`, with
-`CUDA::cudart` linked `PUBLIC` and NVML enabled; without CUDA, an `INTERFACE`
-shim of the same name linking `CORE` and `DEPS_PUBLIC`. Both are exported.
+Compiled library and its `seeker::` alias. A shared library gets `VERSION` and
+`SOVERSION` from the project version. The library's public include path is `INC`
+plus the project root (build tree) or the install include directory; the
+target and the headers under `INC` are installed and exported in seekerTargets.
+Skipped on bare-metal builds unless `BAREMETAL` is given, when a requirement
+does not hold, and when a `REQUIRES_TARGETS` target does not exist; `SHARED`
+becomes `STATIC` on bare-metal.
 
-| Argument                              | Value                | Notes                                                       |
-| ------------------------------------- | -------------------- | ----------------------------------------------------------- |
-| `NAME`                                | target               | required                                                    |
-| `SRC`                                 | files                | required, CUDA sources                                      |
-| `CORE`                                | target               | the CPU library; linked `PRIVATE` (`INTERFACE` by the shim) |
-| `TYPE`                                | `STATIC` or `SHARED` | default `SHARED`                                            |
-| `INC`                                 | directory            | `PRIVATE`                                                   |
-| `DEPS_PUBLIC`                         | targets              | linked `PUBLIC` (`INTERFACE` by the shim)                   |
-| `DEPS_PRIVATE`                        | targets              | linked `PRIVATE`                                            |
-| `SEPARABLE`, `RESOLVE_DEVICE_SYMBOLS` | flags                | device-link properties, `OFF` by default                    |
-| `NO_CUDART`, `NO_NVML`                | flags                | leave out the CUDA runtime or NVML                          |
+| Argument           | Value               | Notes                                                                                                                                                        |
+| ------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NAME`             | `<target>`          | required                                                                                                                                                     |
+| `TYPE`             | `STATIC\|SHARED`    | required                                                                                                                                                     |
+| `INC`              | `<include_dir>`     | required, public include directory                                                                                                                           |
+| `SRC`              | `<files...>`        | required                                                                                                                                                     |
+| `DEPS_PUBLIC`      | `<targets...>`      | optional, linked `PUBLIC`                                                                                                                                    |
+| `DEPS_PRIVATE`     | `<targets...>`      | optional, linked `PRIVATE`                                                                                                                                   |
+| `REQUIRES`         | `<requirements...>` | optional (`POSIX`, `LINUX`, `CUDA`)                                                                                                                          |
+| `REQUIRES_TARGETS` | `<targets...>`      | optional, targets that must exist; checked, not linked (name them in `DEPS_PUBLIC` or `DEPS_PRIVATE` as well)                                                |
+| `OUTPUT_NAME`      | `<file_stem>`       | optional, the library file's name without prefix and suffix; default `${PROJECT_NAME}_<NAME>` (`NAME` itself when it already starts with `${PROJECT_NAME}_`) |
+| `BAREMETAL`        |                     | optional flag: also built on bare-metal                                                                                                                      |
 
-### Tests
+#### `seeker_add_app`
 
-`seeker_add_gtest(TARGET SOURCES ...)`: GoogleTest executable in
-`bin/tests/`, its tests found in its sources and registered with CTest, linked
-with `GTest::gtest_main` and `GTest::gmock`.
+`seeker_add_app(...)`
 
-| Argument           | Value     | Notes                                                                    |
-| ------------------ | --------- | ------------------------------------------------------------------------ |
-| `TARGET`           | name      | required                                                                 |
-| `SOURCES`          | files     | required                                                                 |
-| `CUDA`             | files     | compiled when CUDA is active, otherwise left out with their tests        |
-| `LINK`             | targets   | linked `PRIVATE`                                                         |
-| `REQUIRES_TARGETS` | targets   | must exist, else the test is skipped; linked `PRIVATE`                   |
-| `LINK_OPTIONS`     | options   | `PRIVATE` linker options                                                 |
-| `INC`              | directory | `PRIVATE` include directory                                              |
-| `LABELS`           | labels    | CTest labels of every test                                               |
-| `WORKING_DIR`      | directory | default: the binary directory                                            |
-| `RESOURCE_LOCK`    | name      | CTest `RESOURCE_LOCK` of every test                                      |
-| `REQUIRES_THREADS` | count     | disables the tests on a host with fewer hardware threads                 |
-| `TIMING_ALL`       | flag      | every test in the Timing lane                                            |
-| `TIMING_TESTS`     | names     | `Suite.Test` names in the Timing lane                                    |
-| `TIMING_PATTERNS`  | regexes   | test names in the Timing lane                                            |
-| `COVERAGE_FOR`     | library   | the library to map instead of those in `LINK` ([section 6](#6-coverage)) |
-| `NO_COVERAGE`      | flag      | no coverage for this test                                                |
+Application executable. Outputs to `${CMAKE_RUNTIME_OUTPUT_DIRECTORY}`, installs
+to the binary directory unless `NO_INSTALL`, and gets a `UPX` copy (`ENABLE_UPX`,
+release builds) unless `NO_UPX`. Skipped on bare-metal builds unless `BAREMETAL`
+is given, when a requirement does not hold, and when a `REQUIRES_TARGETS`
+target does not exist.
 
-Timed tests get the `Timing` label and run serially unless `RESOURCE_LOCK`
-already serializes them; names and patterns that match no test select nothing.
+| Argument           | Value               | Notes                                               |
+| ------------------ | ------------------- | --------------------------------------------------- |
+| `NAME`             | `<target>`          | required                                            |
+| `SRC`              | `<files...>`        | required                                            |
+| `LINK`             | `<targets...>`      | optional, linked `PRIVATE`                          |
+| `INC`              | `<dirs...>`         | optional, `PRIVATE` include directories             |
+| `DEFS`             | `<defs...>`         | optional, `PRIVATE` compile definitions             |
+| `FEATURES`         | `<features...>`     | optional, `PRIVATE` compile features                |
+| `REQUIRES`         | `<requirements...>` | optional (`POSIX`, `LINUX`, `CUDA`)                 |
+| `REQUIRES_TARGETS` | `<targets...>`      | optional, targets that must exist; linked `PRIVATE` |
+| `BAREMETAL`        |                     | optional flag: also built on bare-metal             |
+| `NO_INSTALL`       |                     | optional flag                                       |
+| `NO_UPX`           |                     | optional flag: no `UPX` copy                        |
 
-`seeker_add_ptest(TARGET SOURCES ...)` and `seeker_add_devtest(TARGET SOURCES
-...)`: performance and development test executables in `bin/ptests/` and
-`bin/dtests/`, built but not registered with CTest; run them by hand. Arguments:
-`TARGET`, `SOURCES` (required), `CUDA`, `LINK`, `INC`, and for performance
-tests `REQUIRES_TARGETS` (as for `seeker_add_gtest`). The performance tests
-also link the gperftools profiler and tcmalloc when found.
+#### `seeker_add_tool`
 
-### Executables
+`seeker_add_tool(...)`
 
-`seeker_add_tool(NAME SRC ...)`: command-line tool in `bin/tools/cpp/`,
-installed to the binary directory unless `NO_INSTALL`, and part of the
-`seeker_cpp_tools` target. `seeker_add_app(NAME SRC ...)`: application in
-`bin/`, installed unless `NO_INSTALL`, with a UPX copy in release builds when
-`ENABLE_UPX` is on, unless `NO_UPX`.
+Command-line tool executable. Outputs to
+`${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tools/cpp`, installs to the binary directory
+unless `NO_INSTALL`, and joins the `${PROJECT_NAME}_cpp_tools` aggregate target
+(`seeker_finalize_cpp_tools`). Sources compile in the language of their
+extension (`.cu` as `CUDA`). Skipped on bare-metal builds unless `BAREMETAL` is
+given, when a requirement does not hold (a `CUDA` tool declares
+`REQUIRES` `CUDA`), and when a `REQUIRES_TARGETS` target does not exist.
 
-| Argument           | Value        | Notes                                                                           |
-| ------------------ | ------------ | ------------------------------------------------------------------------------- |
-| `NAME`             | target       | required                                                                        |
-| `SRC`              | files        | required; a `.cu` source compiles as CUDA, so its tool declares `REQUIRES CUDA` |
-| `LINK`             | targets      | linked `PRIVATE`                                                                |
-| `INC`              | directories  | `PRIVATE` include directories                                                   |
-| `DEFS`             | definitions  | `PRIVATE` compile definitions                                                   |
-| `FEATURES`         | features     | `PRIVATE` compile features                                                      |
-| `REQUIRES`         | requirements | see above                                                                       |
-| `REQUIRES_TARGETS` | targets      | must exist, else the executable is skipped; linked `PRIVATE`                    |
-| `BAREMETAL`        | flag         | also built on bare-metal                                                        |
-| `NO_INSTALL`       | flag         | not installed                                                                   |
-| `NO_UPX`           | flag         | `seeker_add_app` only: no UPX copy                                              |
+| Argument           | Value               | Notes                                               |
+| ------------------ | ------------------- | --------------------------------------------------- |
+| `NAME`             | `<target>`          | required                                            |
+| `SRC`              | `<files...>`        | required                                            |
+| `LINK`             | `<targets...>`      | optional, linked `PRIVATE`                          |
+| `INC`              | `<dirs...>`         | optional, `PRIVATE` include directories             |
+| `DEFS`             | `<defs...>`         | optional, `PRIVATE` compile definitions             |
+| `FEATURES`         | `<features...>`     | optional, `PRIVATE` compile features                |
+| `REQUIRES`         | `<requirements...>` | optional (`POSIX`, `LINUX`, `CUDA`)                 |
+| `REQUIRES_TARGETS` | `<targets...>`      | optional, targets that must exist; linked `PRIVATE` |
+| `BAREMETAL`        |                     | optional flag: also built on bare-metal             |
+| `NO_INSTALL`       |                     | optional flag                                       |
 
-`seeker_finalize_cpp_tools()` creates the `seeker_cpp_tools` aggregate target;
-call it once, after the last tool.
+#### `seeker_add_library_cuda`
 
-### Module and opt-in helpers
+`seeker_add_library_cuda(...)`
 
-| Helper                                               | Arguments              | Does                                                                                                                                              |
-| ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `seeker_module(<name>)`                              | name                   | sets `LIB_NAME`, `SRC_DIR`, `INC_DIR`, `UTST_DIR`, `PTST_DIR`, `DTST_DIR`, `README_FILE` in the caller                                            |
-| `seeker_add_test_subdirs([UTST] [PTST] [DTST])`      | `UTST`, `PTST`, `DTST` | adds the module's `utst/`, `ptst/`, `dtst/` directories that have a `CMakeLists.txt` (all three without arguments), in the top-level project only |
-| `seeker_standard_optins(<target>)`                   | target                 | Doxygen docs (`PROJECT_BUILD_DOCS`), UPX copy (`ENABLE_UPX`), clang-tidy on `.cu` files (`ENABLE_CLANG_TIDY`); no coverage                        |
-| `seeker_install_docs(<path> [DESTINATION <subdir>])` | path, `DESTINATION`    | installs a markdown file or directory under the doc directory (release builds, or no build type)                                                  |
-| `seeker_nvml_enable(<target>)`                       | target                 | links NVML when found and defines `COMPAT_NVML_AVAILABLE` to 1 or 0                                                                               |
-| `seeker_cupti_enable(<target>)`                      | target                 | links CUPTI when found and defines `COMPAT_CUPTI_AVAILABLE` to 1 or 0                                                                             |
+`CUDA` sidecar of a `CPU` library. When the `CUDA` toolkit is found and the `CUDA`
+language is enabled, a compiled library and its `seeker::` alias: `SRC` compiled
+through `seeker_cuda_sources`, `CORE` linked `PRIVATE`, `CUDA::cudart` linked `PUBLIC`
+unless `NO_CUDART`, `NVML` enabled unless `NO_NVML`, installed and exported. Without
+`CUDA`, an `INTERFACE` shim of the same name that links `CORE` and `DEPS_PUBLIC`, so
+consumers declare the sidecar unconditionally. Skipped on bare-metal builds.
+Otherwise it is skipped when `CORE` was skipped, and a `CORE` that is neither a
+target nor a skipped one fails the configure.
 
-### Lower-level helpers
+| Argument                 | Value            | Notes                                                |
+| ------------------------ | ---------------- | ---------------------------------------------------- |
+| `NAME`                   | `<target>`       | required                                             |
+| `SRC`                    | `<files...>`     | required, `CUDA` sources                             |
+| `CORE`                   | `<cpu_target>`   | optional, linked `PRIVATE` (`INTERFACE` by the shim) |
+| `TYPE`                   | `STATIC\|SHARED` | optional (default `SHARED`)                          |
+| `INC`                    | `<include_dir>`  | optional, `PRIVATE`                                  |
+| `DEPS_PUBLIC`            | `<targets...>`   | optional, linked `PUBLIC` (`INTERFACE` by the shim)  |
+| `DEPS_PRIVATE`           | `<targets...>`   | optional, linked `PRIVATE`                           |
+| `SEPARABLE`              |                  | optional flag                                        |
+| `RESOLVE_DEVICE_SYMBOLS` |                  | optional flag                                        |
+| `NO_CUDART`              |                  | optional flag                                        |
+| `NO_NVML`                |                  | optional flag                                        |
 
-Called by the helpers above; a leaf file rarely needs them.
+#### `seeker_finalize_cpp_tools`
 
-| Helper                                                                 | Arguments                                                                                           |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `seeker_cuda_sources(<target> FILES ...)`                              | `FILES` (required), `DEFINE`, `NO_CUDART`, `SEPARABLE`, `RESOLVE_DEVICE_SYMBOLS`                    |
-| `seeker_add_doxygen(<target> ...)`                                     | `README`, `SRC`, `INC`, `TST`, `DOCS`, `TOOLS`, `TEMPLATES`, `EXTRA_DIRS`, `HEADERS_ONLY`, `NO_TST` |
-| `seeker_add_upx_copy(<target>)`                                        | none                                                                                                |
-| `seeker_clang_tidy_cuda(<target> FILES ...)`                           | `FILES` (required), `ALLOW_FAILURE`                                                                 |
-| `seeker_coverage_init()`, `seeker_coverage_register(<test> <library>)` | none                                                                                                |
-| `seeker_guard(<target>)`, `seeker_is_cuda_target(<target> <out_var>)`  | none                                                                                                |
+`seeker_finalize_cpp_tools()`
 
-`seeker_add_doxygen` writes each Doxyfile from `Doxyfile.common.in` in this
-directory, part of the layer; a project's `docs/Doxyfile.common.in` replaces
-it.
+Create the `${PROJECT_NAME}_cpp_tools` aggregate target over every tool
+`seeker_add_tool` created; none when no tool was created. Call once, after the
+last `seeker_add_tool`.
 
-Each helper's comment block in its module lists its arguments and states what
-it does.
+### `Testing.cmake`
+
+#### `seeker_add_gtest`
+
+`seeker_add_gtest(...)`
+
+GoogleTest executable in `${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/tests`. Its tests
+are found in its sources (`gtest_add_tests`) and registered with CTest. `CUDA`
+sources are compiled through `seeker_cuda_sources` when the `CUDA` toolkit is
+found and the `CUDA` language enabled, and otherwise left out with their tests.
+Skipped on bare-metal builds, and when a `REQUIRES_TARGETS` target does not
+exist.
+
+| Argument           | Value          | Notes                                                                         |
+| ------------------ | -------------- | ----------------------------------------------------------------------------- |
+| `TARGET`           | `<name>`       | required                                                                      |
+| `SOURCES`          | `<files...>`   | required                                                                      |
+| `CUDA`             | `<files...>`   | optional, `CUDA` sources                                                      |
+| `LINK`             | `<targets...>` | optional, linked `PRIVATE` with `GTest::gtest_main` and `GTest::gmock`        |
+| `REQUIRES_TARGETS` | `<targets...>` | optional, targets that must exist; linked `PRIVATE` (not mapped for coverage) |
+| `LINK_OPTIONS`     | `<options...>` | optional, `PRIVATE` linker options                                            |
+| `INC`              | `<dir>`        | optional, `PRIVATE` include directory                                         |
+| `LABELS`           | `<labels...>`  | optional, CTest labels of every test                                          |
+| `WORKING_DIR`      | `<dir>`        | optional (default: the binary directory)                                      |
+| `RESOURCE_LOCK`    | `<name>`       | optional, CTest `RESOURCE_LOCK` of every test                                 |
+| `REQUIRES_THREADS` | `<count>`      | optional, disables the tests on a host with fewer hardware threads            |
+| `TIMING_ALL`       |                | optional flag: every test is timed                                            |
+| `TIMING_TESTS`     | `<names...>`   | optional, timed tests (`Suite.Test`)                                          |
+| `TIMING_PATTERNS`  | `<regex...>`   | optional, timed tests by name pattern                                         |
+| `COVERAGE_FOR`     | `<lib_target>` | optional, the library to map instead of those found in `LINK`                 |
+| `NO_COVERAGE`      |                | optional flag: no coverage for this test                                      |
+
+#### `seeker_add_ptest`
+
+`seeker_add_ptest(...)`
+
+Performance test executable in `${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ptests`,
+built but not registered with CTest: run it by hand, for example
+
+```text
+build/native-linux-debug/bin/ptests/<TARGET> --csv results.csv
+```
+
+Links GoogleTest and, when found, the gperftools profiler and tcmalloc; the
+build `RPATH` reaches the library output directory. `CUDA` sources are compiled
+when `CUDA` is active and left out otherwise. Skipped on bare-metal builds, and
+when a `REQUIRES_TARGETS` target does not exist (a test that measures with an
+optional library names it there).
+
+| Argument           | Value          | Notes                                               |
+| ------------------ | -------------- | --------------------------------------------------- |
+| `TARGET`           | `<name>`       | required                                            |
+| `SOURCES`          | `<files...>`   | required                                            |
+| `CUDA`             | `<files...>`   | optional, `CUDA` sources                            |
+| `LINK`             | `<targets...>` | optional, linked `PRIVATE`                          |
+| `REQUIRES_TARGETS` | `<targets...>` | optional, targets that must exist; linked `PRIVATE` |
+| `INC`              | `<dir>`        | optional, `PRIVATE` include directory               |
+
+#### `seeker_add_devtest`
+
+`seeker_add_devtest(...)`
+
+Development test executable in `${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dtests`,
+built but not registered with CTest, for tests that need data files or
+hardware a CTest run does not have: run it by hand, for example
+
+```text
+build/native-linux-debug/bin/dtests/<TARGET> --gtest_filter="*Pattern*"
+```
+
+Links GoogleTest. `CUDA` sources are compiled when `CUDA` is active and left out
+otherwise. Skipped on bare-metal builds.
+
+| Argument  | Value          | Notes                                 |
+| --------- | -------------- | ------------------------------------- |
+| `TARGET`  | `<name>`       | required                              |
+| `SOURCES` | `<files...>`   | required                              |
+| `CUDA`    | `<files...>`   | optional, `CUDA` sources              |
+| `LINK`    | `<targets...>` | optional, linked `PRIVATE`            |
+| `INC`     | `<dir>`        | optional, `PRIVATE` include directory |
+
+### `Tooling.cmake`
+
+#### `seeker_add_doxygen`
+
+`seeker_add_doxygen(<target> [README <path>] [SRC <dir>] [INC <dir>] [TST <dir>] [DOCS <dir>] [TOOLS <dir>] [TEMPLATES <dir>] [EXTRA_DIRS <dirs...>] [HEADERS_ONLY] [NO_TST])`
+
+Add a `<target>_docs` target (part of the global docs target) that runs Doxygen
+into `${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html`. `SRC`, `TST`, `DOCS`, `TOOLS`,
+`TEMPLATES` and `README` default to src, utst, docs, tools, templates and `README.md`
+under the current source directory when those exist, `INC` to inc; `EXTRA_DIRS`
+adds directories, `HEADERS_ONLY` leaves out the sources and `NO_TST` the tests.
+The Doxyfile comes from the layer's template, `Doxyfile.common.in` beside this
+module, or from the project's `docs/Doxyfile.common.in` when that exists. A
+no-op unless `PROJECT_BUILD_DOCS` is `ON`; a warning and no docs target when
+Doxygen is not found.
+
+| Argument       | Value       | Notes                                    |
+| -------------- | ----------- | ---------------------------------------- |
+| `README`       | `<path>`    | optional                                 |
+| `SRC`          | `<dir>`     | optional                                 |
+| `INC`          | `<dir>`     | optional (default inc, even when absent) |
+| `TST`          | `<dir>`     | optional                                 |
+| `DOCS`         | `<dir>`     | optional                                 |
+| `TOOLS`        | `<dir>`     | optional                                 |
+| `TEMPLATES`    | `<dir>`     | optional                                 |
+| `EXTRA_DIRS`   | `<dirs...>` | optional                                 |
+| `HEADERS_ONLY` |             | optional flag                            |
+| `NO_TST`       |             | optional flag                            |
+
+#### `seeker_install_docs`
+
+`seeker_install_docs(<path> [DESTINATION <subdir>])`
+
+Install a markdown file, or a directory recursively, to `CMAKE_INSTALL_DOCDIR`
+or the `DESTINATION` subdirectory of it. A no-op unless `CMAKE_BUILD_TYPE` is
+empty, Release, MinSizeRel or RelWithDebInfo.
+
+| Argument      | Value      | Notes    |
+| ------------- | ---------- | -------- |
+| `DESTINATION` | `<subdir>` | optional |
+
+#### `seeker_add_upx_copy`
+
+`seeker_add_upx_copy(<target>)`
+
+After each build of `<target>`, write a UPX-compressed copy to
+`<artifact_dir>/upx/<file>.upx` (a plain copy when `UPX` fails). Executables only,
+and shared or module libraries with `UPX_COMPRESS_SHARED`. A no-op unless
+`ENABLE_UPX` is `ON` and `CMAKE_BUILD_TYPE` is empty, Release or MinSizeRel; a
+warning when upx is not found.
+
+#### `seeker_clang_tidy_cuda`
+
+`seeker_clang_tidy_cuda(<target> FILES <files...> [ALLOW_FAILURE])`
+
+After each build of `<target>`, run clang-tidy on the given `CUDA` sources through
+Clang's `CUDA` frontend; `ALLOW_FAILURE` keeps findings from failing the build. A
+no-op for an `INTERFACE` target, without the `CUDA` toolkit, with
+`ENABLE_CLANG_TIDY` `OFF`, or when clang-tidy is not found. A target a factory
+skipped on this platform is ignored; any other name that is not a target
+fails the configure.
+
+| Argument        | Value        | Notes         |
+| --------------- | ------------ | ------------- |
+| `FILES`         | `<files...>` | required      |
+| `ALLOW_FAILURE` |              | optional flag |
+
+<!-- end of helper reference -->
 
 ---
 
@@ -452,8 +751,8 @@ The coverage flags are never installed or exported.
 ## 7. The Check
 
 `tools/cmake/check_leaf_cmake.py` keeps leaf files declarative. It reads every
-`CMakeLists.txt` and `*.cmake` under `src/` and `tools/`, prints each file's
-commands, and fails on:
+`CMakeLists.txt` and `*.cmake` under `src/` and `tools/` (`LEAF_DIRS`), outside
+hidden directories, prints each file's commands, and fails on:
 
 - a command that constructs or changes a target or the build settings outside
   the helpers: `add_library`, `add_executable`, any `target_*`,
@@ -475,7 +774,10 @@ commands, and fails on:
   with its line: a form the check does not support; write the argument in
   double quotes;
 - helper signatures in `.cmake-format.yaml` that differ from the helpers, and a
-  helper comment block that does not name one of its keywords.
+  helper comment block that does not name one of its keywords;
+- a [helper reference](#5-helper-reference) that differs from the rendering of
+  the helpers' comment blocks, or a public helper's block that does not read
+  (`tools/cmake/gen_helper_reference.py` names the block and the problem).
 
 It reads the files with the lexer of cmakelang, the package of cmake-format, so
 comments, quoted and bracket arguments are not commands. The helpers
@@ -505,9 +807,16 @@ containers have both.
    helper cannot work without it.
 2. Implement it in the helper, after the argument check, with the visibility the
    target needs.
-3. List it in the comment block above the function.
+3. Add its row to the `Arguments:` table of the comment block above the
+   function: two spaces, the keyword, its value placeholder (none for a flag),
+   then `required` or `optional` and the notes, continued on lines indented to
+   the notes. The block opens with the call form and a blank line, and its
+   description, prose with literal lines indented further, comes before the
+   table; the description's first paragraph is what section 5 shows.
 4. Regenerate the formatter signatures under `parse.additional_commands` in
-   `.cmake-format.yaml` with `python3 tools/cmake/gen_signatures.py`.
+   `.cmake-format.yaml` with `python3 tools/cmake/gen_signatures.py`, and the
+   [helper reference](#5-helper-reference) with
+   `python3 tools/cmake/gen_helper_reference.py`.
 5. Use it in the leaf file, run `make compose-format-check`, and configure once
    with a misspelled or empty use to see the helper's message.
 
