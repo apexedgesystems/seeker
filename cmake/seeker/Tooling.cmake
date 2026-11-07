@@ -22,11 +22,12 @@ endif ()
 #                     [HEADERS_ONLY] [NO_TST])
 #
 # Add a <target>_docs target (part of the global docs target) that runs Doxygen
-# into ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html. SRC, TST, DOCS, TOOLS,
-# TEMPLATES and README default to src, utst, docs, tools, templates and README.md
-# under the current source directory when those exist, INC to inc; EXTRA_DIRS
-# adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests.
-# The Doxyfile comes from the layer's template, Doxyfile.common.in beside this
+# with the output directory ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html,
+# which holds its html/ and xml/ output. SRC, TST, DOCS, TOOLS, TEMPLATES and
+# README default to src, utst, docs, tools, templates and README.md under the
+# current source directory when those exist, INC to inc; EXTRA_DIRS adds
+# directories, HEADERS_ONLY leaves out the sources and NO_TST the tests. The
+# Doxyfile comes from the layer's template, Doxyfile.common.in beside this
 # module, or from the project's docs/Doxyfile.common.in when that exists. A
 # no-op unless PROJECT_BUILD_DOCS is ON; a warning and no docs target when
 # Doxygen is not found.
@@ -316,8 +317,8 @@ endif ()
 # After each build of <target>, run clang-tidy on the given CUDA sources through
 # Clang's CUDA frontend; ALLOW_FAILURE keeps findings from failing the build. A
 # no-op for an INTERFACE target, without the CUDA toolkit, with
-# ENABLE_CLANG_TIDY OFF, or when clang-tidy is not found. A target a factory
-# skipped on this platform is ignored; any other name that is not a target
+# ENABLE_CLANG_TIDY OFF, or when clang-tidy is not found. A target a helper
+# skipped (_seeker_skip) is ignored; any other name that is not a target
 # fails the configure.
 #
 # Arguments:

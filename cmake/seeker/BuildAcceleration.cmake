@@ -21,7 +21,9 @@ option(SEEKER_USE_CCACHE "Use ccache/sccache if available" ON)
 
 # The launchers are normal variables set on every configure, so the option
 # takes effect in an existing build directory; a ccache or sccache launcher an
-# earlier configure cached is removed.
+# earlier configure cached is removed. While the option is ON, the ccache or
+# sccache it finds replaces a launcher given by hand with
+# -DCMAKE_<LANG>_COMPILER_LAUNCHER; turn the option OFF to keep another one.
 foreach (_lang IN ITEMS C CXX CUDA)
   if ("$CACHE{CMAKE_${_lang}_COMPILER_LAUNCHER}" MATCHES "(^|/)s?ccache$")
     unset(CMAKE_${_lang}_COMPILER_LAUNCHER CACHE)

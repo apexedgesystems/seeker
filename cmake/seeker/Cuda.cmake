@@ -198,7 +198,7 @@ endfunction ()
 # BUILD_RPATH and INSTALL_RPATH of a target that is not INTERFACE, unless the
 # library is a stub (its real path is in a stubs directory): a stub is for
 # linking only, and the driver's library is found at run time. A target a
-# factory skipped on this platform is ignored; any other name that is not a
+# helper skipped (_seeker_skip) is ignored; any other name that is not a
 # target fails the configure.
 #
 # Search priority:

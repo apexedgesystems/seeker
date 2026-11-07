@@ -279,7 +279,7 @@ endfunction ()
 #     ENABLE_CLANG_TIDY)
 #
 # Coverage is not an opt-in: seeker_add_gtest instruments the compiled
-# libraries a test links. A target a factory skipped on this platform is
+# libraries a test links. A target a helper skipped (_seeker_skip) is
 # ignored; any other name that is not a target fails the configure.
 # ------------------------------------------------------------------------------
 function (seeker_standard_optins _target)

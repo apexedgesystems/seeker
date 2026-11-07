@@ -53,7 +53,7 @@ function (_seeker_platform_supports _out_var _helper _target _baremetal_ok)
     elseif (_req STREQUAL "PTHREADS")
       message(
         FATAL_ERROR
-          "${_helper}: PTHREADS is retired; POSIX means a hosted platform. Link "
+          "${_helper}: PTHREADS is retired; POSIX means a hosted UNIX platform. Link "
           "Threads::Threads through DEPS_PUBLIC, DEPS_PRIVATE or DEPS_INTERFACE on a library, "
           "LINK on a test, tool or app."
       )

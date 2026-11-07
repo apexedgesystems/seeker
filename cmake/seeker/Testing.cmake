@@ -67,6 +67,7 @@ function (seeker_add_gtest)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${GT_TARGET} "bare-metal")
     return()
   endif ()
   _seeker_requires_targets(_present ${GT_TARGET} ${GT_REQUIRES_TARGETS})
@@ -269,8 +270,9 @@ endfunction ()
 # seeker_add_ptest(...)
 #
 # Performance test executable in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ptests,
-# built but not registered with CTest: run it by hand, for example
-#   build/native-linux-debug/bin/ptests/<TARGET> --csv results.csv
+# built but not registered with CTest: run it by hand in a build where the
+# targets it names in REQUIRES_TARGETS exist, for example
+#   <build>/bin/ptests/<TARGET> --csv results.csv
 # Links GoogleTest and, when found, the gperftools profiler and tcmalloc; the
 # build RPATH reaches the library output directory. CUDA sources are compiled
 # when CUDA is active and left out otherwise. Skipped on bare-metal builds, and
@@ -292,6 +294,7 @@ function (seeker_add_ptest)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${PT_TARGET} "bare-metal")
     return()
   endif ()
   _seeker_requires_targets(_present ${PT_TARGET} ${PT_REQUIRES_TARGETS})
@@ -408,6 +411,7 @@ function (seeker_add_devtest)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${DT_TARGET} "bare-metal")
     return()
   endif ()
 

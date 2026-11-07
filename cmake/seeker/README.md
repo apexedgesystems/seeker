@@ -408,7 +408,7 @@ is cached, and every call that links the library adds its directory to the
 `BUILD_RPATH` and `INSTALL_RPATH` of a target that is not `INTERFACE`, unless the
 library is a stub (its real path is in a stubs directory): a stub is for
 linking only, and the driver's library is found at run time. A target a
-factory skipped on this platform is ignored; any other name that is not a
+helper skipped (`_seeker_skip`) is ignored; any other name that is not a
 target fails the configure.
 
 #### `seeker_cupti_enable`
@@ -602,10 +602,11 @@ exist.
 `seeker_add_ptest(...)`
 
 Performance test executable in `${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ptests`,
-built but not registered with CTest: run it by hand, for example
+built but not registered with CTest: run it by hand in a build where the
+targets it names in `REQUIRES_TARGETS` exist, for example
 
 ```text
-build/native-linux-debug/bin/ptests/<TARGET> --csv results.csv
+<build>/bin/ptests/<TARGET> --csv results.csv
 ```
 
 Links GoogleTest and, when found, the gperftools profiler and tcmalloc; the
@@ -653,11 +654,12 @@ otherwise. Skipped on bare-metal builds.
 `seeker_add_doxygen(<target> [README <path>] [SRC <dir>] [INC <dir>] [TST <dir>] [DOCS <dir>] [TOOLS <dir>] [TEMPLATES <dir>] [EXTRA_DIRS <dirs...>] [HEADERS_ONLY] [NO_TST])`
 
 Add a `<target>_docs` target (part of the global docs target) that runs Doxygen
-into `${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html`. `SRC`, `TST`, `DOCS`, `TOOLS`,
-`TEMPLATES` and `README` default to src, utst, docs, tools, templates and `README.md`
-under the current source directory when those exist, `INC` to inc; `EXTRA_DIRS`
-adds directories, `HEADERS_ONLY` leaves out the sources and `NO_TST` the tests.
-The Doxyfile comes from the layer's template, `Doxyfile.common.in` beside this
+with the output directory `${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html`,
+which holds its `html/` and `xml/` output. `SRC`, `TST`, `DOCS`, `TOOLS`, `TEMPLATES` and
+`README` default to src, utst, docs, tools, templates and `README.md` under the
+current source directory when those exist, `INC` to inc; `EXTRA_DIRS` adds
+directories, `HEADERS_ONLY` leaves out the sources and `NO_TST` the tests. The
+Doxyfile comes from the layer's template, `Doxyfile.common.in` beside this
 module, or from the project's `docs/Doxyfile.common.in` when that exists. A
 no-op unless `PROJECT_BUILD_DOCS` is `ON`; a warning and no docs target when
 Doxygen is not found.
@@ -704,8 +706,8 @@ warning when upx is not found.
 After each build of `<target>`, run clang-tidy on the given `CUDA` sources through
 Clang's `CUDA` frontend; `ALLOW_FAILURE` keeps findings from failing the build. A
 no-op for an `INTERFACE` target, without the `CUDA` toolkit, with
-`ENABLE_CLANG_TIDY` `OFF`, or when clang-tidy is not found. A target a factory
-skipped on this platform is ignored; any other name that is not a target
+`ENABLE_CLANG_TIDY` `OFF`, or when clang-tidy is not found. A target a helper
+skipped (`_seeker_skip`) is ignored; any other name that is not a target
 fails the configure.
 
 | Argument        | Value        | Notes         |
