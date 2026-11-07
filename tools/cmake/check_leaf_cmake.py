@@ -227,14 +227,11 @@ def check_leaf(path: Path, rel: str) -> Tuple[List[str], List[str]]:
                 "seeker_* call that creates the target an argument for it" % where
             )
         elif INTERNAL_HELPER.match(lowered):
-            violations.append(
-                "%s: internal helper; call the public seeker_* helper" % where
-            )
+            violations.append("%s: internal helper; call the public seeker_* helper" % where)
         elif lowered == "include" and not (args and HELPER_MODULE.match(args[0])):
             target = args[0] if args else ""
             violations.append(
-                "%s(%s): leaf files include only seeker/ helper modules"
-                % (where, target)
+                "%s(%s): leaf files include only seeker/ helper modules" % (where, target)
             )
     summary = [name if n == 1 else "%s(%d)" % (name, n) for name, n in counts.items()]
     return summary, violations
@@ -257,9 +254,7 @@ def _run(args: List[str], root: Path) -> str:
 
 def generated_signatures(root: Path) -> Dict[str, dict]:
     """cmake-genparsers' description of every public helper's arguments."""
-    modules = [
-        str(p.relative_to(root)) for p in sorted((root / HELPER_DIR).glob("*.cmake"))
-    ]
+    modules = [str(p.relative_to(root)) for p in sorted((root / HELPER_DIR).glob("*.cmake"))]
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "signatures.json"
         _run(["cmake-genparsers", "-f", "json", "-o", str(out)] + modules, root)
@@ -268,9 +263,7 @@ def generated_signatures(root: Path) -> Dict[str, dict]:
 
 def configured_signatures(root: Path) -> Dict[str, dict]:
     """The helper signatures the formatter configuration carries."""
-    dumped = _run(
-        ["cmake-format", "-c", str(FORMAT_CONFIG), "--dump-config", "json"], root
-    )
+    dumped = _run(["cmake-format", "-c", str(FORMAT_CONFIG), "--dump-config", "json"], root)
     return json.loads(dumped).get("parse", {}).get("additional_commands", {})
 
 
@@ -300,13 +293,10 @@ def check_helpers(root: Path) -> Tuple[List[str], List[str]]:
         if name not in configured:
             violations.append("%s: %s has no signature in it" % (FORMAT_CONFIG, name))
         elif name not in generated:
-            violations.append(
-                "%s: %s is not a helper in %s" % (FORMAT_CONFIG, name, HELPER_DIR)
-            )
+            violations.append("%s: %s is not a helper in %s" % (FORMAT_CONFIG, name, HELPER_DIR))
         elif generated[name] != configured[name]:
             violations.append(
-                "%s: the signature of %s differs from the helper"
-                % (FORMAT_CONFIG, name)
+                "%s: the signature of %s differs from the helper" % (FORMAT_CONFIG, name)
             )
     if violations:
         violations.append(
@@ -316,15 +306,12 @@ def check_helpers(root: Path) -> Tuple[List[str], List[str]]:
 
     blocks = comment_blocks(root)
     for name, spec in sorted(generated.items()):
-        keywords = list(spec.get("pargs", {}).get("flags", [])) + list(
-            spec.get("kwargs", {})
-        )
+        keywords = list(spec.get("pargs", {}).get("flags", [])) + list(spec.get("kwargs", {}))
         block = blocks.get(name, "")
         for keyword in keywords:
             if not re.search(r"\b%s\b" % re.escape(keyword), block):
                 violations.append(
-                    "%s: the comment block of %s does not name %s"
-                    % (HELPER_DIR, name, keyword)
+                    "%s: the comment block of %s does not name %s" % (HELPER_DIR, name, keyword)
                 )
     summary = [
         "helper signatures: %s matches cmake-genparsers for %d helpers"

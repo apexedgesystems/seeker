@@ -472,8 +472,7 @@ It needs Python 3 and cmakelang (the lexer, cmake-format and
    target needs.
 3. List it in the comment block above the function.
 4. Regenerate the formatter signatures under `parse.additional_commands` in
-   `.cmake-format.yaml` with
-   `cmake-genparsers -f yaml cmake/seeker/*.cmake`.
+   `.cmake-format.yaml` with `python3 tools/cmake/gen_signatures.py`.
 5. Use it in the leaf file, run `make compose-format-check`, and configure once
    with a misspelled or empty use to see the helper's message.
 

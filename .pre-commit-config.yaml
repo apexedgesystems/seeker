@@ -60,6 +60,24 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
+  # -----------
+  # Python: fmt
+  # -----------
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        args:
+          - --line-length=100
+
+  - repo: https://github.com/pycqa/isort
+    rev: 7.0.0
+    hooks:
+      - id: isort
+        args:
+          - --profile=black
+          - --line-length=100
+
   # --------------------------------------
   # JS/CSS/HTML/JSON/YAML via Prettier
   # --------------------------------------
