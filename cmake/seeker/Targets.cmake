@@ -186,11 +186,16 @@ endfunction ()
 #   REQUIRES_TARGETS <targets...>   optional, targets that must exist; checked,
 #                                   not linked (name them in DEPS_PUBLIC or
 #                                   DEPS_PRIVATE as well)
+#   OUTPUT_NAME  <file_stem>        optional, the library file's name without
+#                                   prefix and suffix; default
+#                                   ${PROJECT_NAME}_<NAME> (NAME itself when it
+#                                   already starts with ${PROJECT_NAME}_)
 #   BAREMETAL                       optional flag: also built on bare-metal
 # ------------------------------------------------------------------------------
 function (seeker_add_library)
   cmake_parse_arguments(
-    AL "BAREMETAL" "NAME;TYPE;INC" "SRC;DEPS_PUBLIC;DEPS_PRIVATE;REQUIRES;REQUIRES_TARGETS" ${ARGN}
+    AL "BAREMETAL" "NAME;TYPE;INC;OUTPUT_NAME"
+    "SRC;DEPS_PUBLIC;DEPS_PRIVATE;REQUIRES;REQUIRES_TARGETS" ${ARGN}
   )
   _seeker_check_arguments(
     seeker_add_library
@@ -221,6 +226,15 @@ function (seeker_add_library)
 
   add_library(${AL_NAME} ${_type})
   add_library(seeker::${AL_NAME} ALIAS ${AL_NAME})
+
+  # Library file name: the project prefix once, whatever the target is called
+  if (NOT DEFINED AL_OUTPUT_NAME)
+    set(AL_OUTPUT_NAME "${AL_NAME}")
+    if (NOT AL_NAME MATCHES "^${PROJECT_NAME}_")
+      set(AL_OUTPUT_NAME "${PROJECT_NAME}_${AL_NAME}")
+    endif ()
+  endif ()
+  set_target_properties(${AL_NAME} PROPERTIES OUTPUT_NAME "${AL_OUTPUT_NAME}")
 
   if (_type STREQUAL "SHARED")
     set_target_properties(

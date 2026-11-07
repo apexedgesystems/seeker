@@ -280,17 +280,18 @@ alias; a shared library gets `VERSION` and `SOVERSION` from the project version.
 The target and the headers under `INC` are installed and exported in
 `seekerTargets`.
 
-| Argument           | Value                | Notes                                                     |
-| ------------------ | -------------------- | --------------------------------------------------------- |
-| `NAME`             | target               | required                                                  |
-| `TYPE`             | `STATIC` or `SHARED` | required; `SHARED` becomes `STATIC` on bare-metal         |
-| `INC`              | directory            | required; public, with the project root in the build tree |
-| `SRC`              | files                | required                                                  |
-| `DEPS_PUBLIC`      | targets              | linked `PUBLIC`                                           |
-| `DEPS_PRIVATE`     | targets              | linked `PRIVATE`                                          |
-| `REQUIRES`         | requirements         | see above                                                 |
-| `REQUIRES_TARGETS` | targets              | must exist; checked, not linked (see above)               |
-| `BAREMETAL`        | flag                 | also built on bare-metal                                  |
+| Argument           | Value                | Notes                                                             |
+| ------------------ | -------------------- | ----------------------------------------------------------------- |
+| `NAME`             | target               | required                                                          |
+| `TYPE`             | `STATIC` or `SHARED` | required; `SHARED` becomes `STATIC` on bare-metal                 |
+| `INC`              | directory            | required; public, with the project root in the build tree         |
+| `SRC`              | files                | required                                                          |
+| `DEPS_PUBLIC`      | targets              | linked `PUBLIC`                                                   |
+| `DEPS_PRIVATE`     | targets              | linked `PRIVATE`                                                  |
+| `REQUIRES`         | requirements         | see above                                                         |
+| `REQUIRES_TARGETS` | targets              | must exist; checked, not linked (see above)                       |
+| `OUTPUT_NAME`      | file stem            | default `${PROJECT_NAME}_<NAME>`, or `NAME` when already prefixed |
+| `BAREMETAL`        | flag                 | also built on bare-metal                                          |
 
 `seeker_add_interface_library(NAME INC ...)`: header-only `INTERFACE` library
 with a `seeker::` alias, installed and exported unless `NO_INSTALL`.

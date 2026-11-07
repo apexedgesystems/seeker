@@ -118,6 +118,7 @@ parse:
         NAME: 1
         TYPE: 1
         INC: 1
+        OUTPUT_NAME: 1
         SRC: +
         DEPS_PUBLIC: +
         DEPS_PRIVATE: +
