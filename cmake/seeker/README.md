@@ -224,7 +224,7 @@ A referenced target is checked where the helper acts. `seeker_standard_optins`,
 for its configuration does not look: `seeker_add_doxygen` with docs off,
 `seeker_add_upx_copy` with UPX off or outside a release build,
 `seeker_coverage_register` without coverage, the CUDA sidecar's `CORE` on
-bare-metal, and the `COVERAGE_FOR` of a test skipped on bare-metal. For a test
+bare-metal, and the `COVERAGE_FOR` of a skipped test. For a test
 that is not skipped, a `COVERAGE_FOR` that coverage cannot map fails the
 configure even with coverage off. An earlier lookup would reject valid
 configurations that skip the referenced target.
@@ -251,6 +251,15 @@ test executables too.
 | `LINUX`     | a hosted platform with `CMAKE_SYSTEM_NAME Linux`     |
 | `CUDA`      | the CUDA toolkit found and the CUDA language enabled |
 
+`REQUIRES_TARGETS` names targets that must exist when the helper runs, so a
+target built only with an optional package declares the package's target
+instead of a guard in the leaf file. When one is missing, the target is
+skipped. `seeker_add_gtest`, `seeker_add_ptest`, `seeker_add_tool` and
+`seeker_add_app` link the named targets `PRIVATE`; `seeker_add_library` and
+`seeker_add_interface_library` only check them, and the library declares the
+link in `DEPS_PUBLIC`, `DEPS_PRIVATE` or `DEPS_INTERFACE` with the visibility
+its headers need.
+
 A skipped target is recorded. `seeker_standard_optins`, `seeker_nvml_enable`,
 `seeker_clang_tidy_cuda` and the sidecar's `CORE` ignore a recorded name and
 fail on any other name that is not a target.
@@ -262,30 +271,32 @@ alias; a shared library gets `VERSION` and `SOVERSION` from the project version.
 The target and the headers under `INC` are installed and exported in
 `seekerTargets`.
 
-| Argument       | Value                | Notes                                                     |
-| -------------- | -------------------- | --------------------------------------------------------- |
-| `NAME`         | target               | required                                                  |
-| `TYPE`         | `STATIC` or `SHARED` | required; `SHARED` becomes `STATIC` on bare-metal         |
-| `INC`          | directory            | required; public, with the project root in the build tree |
-| `SRC`          | files                | required                                                  |
-| `DEPS_PUBLIC`  | targets              | linked `PUBLIC`                                           |
-| `DEPS_PRIVATE` | targets              | linked `PRIVATE`                                          |
-| `REQUIRES`     | requirements         | see above                                                 |
-| `BAREMETAL`    | flag                 | also built on bare-metal                                  |
+| Argument           | Value                | Notes                                                     |
+| ------------------ | -------------------- | --------------------------------------------------------- |
+| `NAME`             | target               | required                                                  |
+| `TYPE`             | `STATIC` or `SHARED` | required; `SHARED` becomes `STATIC` on bare-metal         |
+| `INC`              | directory            | required; public, with the project root in the build tree |
+| `SRC`              | files                | required                                                  |
+| `DEPS_PUBLIC`      | targets              | linked `PUBLIC`                                           |
+| `DEPS_PRIVATE`     | targets              | linked `PRIVATE`                                          |
+| `REQUIRES`         | requirements         | see above                                                 |
+| `REQUIRES_TARGETS` | targets              | must exist; checked, not linked (see above)               |
+| `BAREMETAL`        | flag                 | also built on bare-metal                                  |
 
 `seeker_add_interface_library(NAME INC ...)`: header-only `INTERFACE` library
 with a `seeker::` alias, installed and exported unless `NO_INSTALL`.
 
-| Argument         | Value        | Notes                                         |
-| ---------------- | ------------ | --------------------------------------------- |
-| `NAME`           | target       | required                                      |
-| `INC`            | directory    | required                                      |
-| `DEPS_INTERFACE` | targets      | linked `INTERFACE`                            |
-| `DEFS`           | definitions  | `INTERFACE` compile definitions               |
-| `FEATURES`       | features     | `INTERFACE` compile features                  |
-| `REQUIRES`       | requirements | see above                                     |
-| `BAREMETAL`      | flag         | also built on bare-metal                      |
-| `NO_INSTALL`     | flag         | neither installed nor exported (test support) |
+| Argument           | Value        | Notes                                         |
+| ------------------ | ------------ | --------------------------------------------- |
+| `NAME`             | target       | required                                      |
+| `INC`              | directory    | required                                      |
+| `DEPS_INTERFACE`   | targets      | linked `INTERFACE`                            |
+| `DEFS`             | definitions  | `INTERFACE` compile definitions               |
+| `FEATURES`         | features     | `INTERFACE` compile features                  |
+| `REQUIRES`         | requirements | see above                                     |
+| `REQUIRES_TARGETS` | targets      | must exist; checked, not linked (see above)   |
+| `BAREMETAL`        | flag         | also built on bare-metal                      |
+| `NO_INSTALL`       | flag         | neither installed nor exported (test support) |
 
 `seeker_add_library_cuda(NAME SRC ...)`: CUDA sidecar of a CPU library. With
 CUDA, a compiled library whose sources go through `seeker_cuda_sources`, with
@@ -316,6 +327,7 @@ with `GTest::gtest_main` and `GTest::gmock`.
 | `SOURCES`          | files     | required                                                                 |
 | `CUDA`             | files     | compiled when CUDA is active, otherwise left out with their tests        |
 | `LINK`             | targets   | linked `PRIVATE`                                                         |
+| `REQUIRES_TARGETS` | targets   | must exist, else the test is skipped; linked `PRIVATE`                   |
 | `LINK_OPTIONS`     | options   | `PRIVATE` linker options                                                 |
 | `INC`              | directory | `PRIVATE` include directory                                              |
 | `LABELS`           | labels    | CTest labels of every test                                               |
@@ -334,7 +346,8 @@ already serializes them; names and patterns that match no test select nothing.
 `seeker_add_ptest(TARGET SOURCES ...)` and `seeker_add_devtest(TARGET SOURCES
 ...)`: performance and development test executables in `bin/ptests/` and
 `bin/dtests/`, built but not registered with CTest; run them by hand. Arguments:
-`TARGET`, `SOURCES` (required), `CUDA`, `LINK`, `INC`. The performance tests
+`TARGET`, `SOURCES` (required), `CUDA`, `LINK`, `INC`, and for performance
+tests `REQUIRES_TARGETS` (as for `seeker_add_gtest`). The performance tests
 also link the gperftools profiler and tcmalloc when found.
 
 ### Executables
@@ -345,18 +358,19 @@ installed to the binary directory unless `NO_INSTALL`, and part of the
 `bin/`, installed unless `NO_INSTALL`, with a UPX copy in release builds when
 `ENABLE_UPX` is on, unless `NO_UPX`.
 
-| Argument     | Value        | Notes                                                                           |
-| ------------ | ------------ | ------------------------------------------------------------------------------- |
-| `NAME`       | target       | required                                                                        |
-| `SRC`        | files        | required; a `.cu` source compiles as CUDA, so its tool declares `REQUIRES CUDA` |
-| `LINK`       | targets      | linked `PRIVATE`                                                                |
-| `INC`        | directories  | `PRIVATE` include directories                                                   |
-| `DEFS`       | definitions  | `PRIVATE` compile definitions                                                   |
-| `FEATURES`   | features     | `PRIVATE` compile features                                                      |
-| `REQUIRES`   | requirements | see above                                                                       |
-| `BAREMETAL`  | flag         | also built on bare-metal                                                        |
-| `NO_INSTALL` | flag         | not installed                                                                   |
-| `NO_UPX`     | flag         | `seeker_add_app` only: no UPX copy                                              |
+| Argument           | Value        | Notes                                                                           |
+| ------------------ | ------------ | ------------------------------------------------------------------------------- |
+| `NAME`             | target       | required                                                                        |
+| `SRC`              | files        | required; a `.cu` source compiles as CUDA, so its tool declares `REQUIRES CUDA` |
+| `LINK`             | targets      | linked `PRIVATE`                                                                |
+| `INC`              | directories  | `PRIVATE` include directories                                                   |
+| `DEFS`             | definitions  | `PRIVATE` compile definitions                                                   |
+| `FEATURES`         | features     | `PRIVATE` compile features                                                      |
+| `REQUIRES`         | requirements | see above                                                                       |
+| `REQUIRES_TARGETS` | targets      | must exist, else the executable is skipped; linked `PRIVATE`                    |
+| `BAREMETAL`        | flag         | also built on bare-metal                                                        |
+| `NO_INSTALL`       | flag         | not installed                                                                   |
+| `NO_UPX`           | flag         | `seeker_add_app` only: no UPX copy                                              |
 
 `seeker_finalize_cpp_tools()` creates the `seeker_cpp_tools` aggregate target;
 call it once, after the last tool.

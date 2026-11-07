@@ -67,6 +67,34 @@ function (_seeker_skip _target _reason)
 endfunction ()
 
 # ------------------------------------------------------------------------------
+# _seeker_requires_targets(<out_var> <target> [<required>...])
+#
+# Set <out_var> to TRUE when every <required> target exists. Otherwise record
+# with _seeker_skip that <target> is skipped for the missing ones and set
+# <out_var> to FALSE. The helpers that take REQUIRES_TARGETS call it after
+# their platform checks.
+# ------------------------------------------------------------------------------
+function (_seeker_requires_targets _out_var _target)
+  set(_missing "")
+  foreach (_required IN LISTS ARGN)
+    if (NOT TARGET "${_required}")
+      list(APPEND _missing "${_required}")
+    endif ()
+  endforeach ()
+
+  set(_present TRUE)
+  if (_missing)
+    list(JOIN _missing ", " _missing_str)
+    _seeker_skip(${_target} "missing targets: ${_missing_str}")
+    set(_present FALSE)
+  endif ()
+  set(${_out_var}
+      ${_present}
+      PARENT_SCOPE
+  )
+endfunction ()
+
+# ------------------------------------------------------------------------------
 # _seeker_target_exists(<helper> <target> <out_var>)
 #
 # Set <out_var> to TRUE when <target> exists and to FALSE when a factory skipped

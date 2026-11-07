@@ -108,6 +108,7 @@ parse:
         DEFS: +
         FEATURES: +
         REQUIRES: +
+        REQUIRES_TARGETS: +
     seeker_add_library:
       pargs:
         nargs: "*"
@@ -121,6 +122,7 @@ parse:
         DEPS_PUBLIC: +
         DEPS_PRIVATE: +
         REQUIRES: +
+        REQUIRES_TARGETS: +
     seeker_add_app:
       pargs:
         nargs: "*"
@@ -136,6 +138,7 @@ parse:
         DEFS: +
         FEATURES: +
         REQUIRES: +
+        REQUIRES_TARGETS: +
     seeker_add_tool:
       pargs:
         nargs: "*"
@@ -150,6 +153,7 @@ parse:
         DEFS: +
         FEATURES: +
         REQUIRES: +
+        REQUIRES_TARGETS: +
     seeker_add_library_cuda:
       pargs:
         nargs: "*"
@@ -185,6 +189,7 @@ parse:
         SOURCES: +
         CUDA: +
         LINK: +
+        REQUIRES_TARGETS: +
         LINK_OPTIONS: +
         LABELS: +
         TIMING_TESTS: +
@@ -199,6 +204,7 @@ parse:
         SOURCES: +
         CUDA: +
         LINK: +
+        REQUIRES_TARGETS: +
     seeker_add_devtest:
       pargs:
         nargs: "*"
