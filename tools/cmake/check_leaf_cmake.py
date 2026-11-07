@@ -299,10 +299,7 @@ def check_helpers(root: Path) -> Tuple[List[str], List[str]]:
                 "%s: the signature of %s differs from the helper" % (FORMAT_CONFIG, name)
             )
     if violations:
-        violations.append(
-            "regenerate with: cmake-genparsers -f yaml %s/*.cmake (under "
-            "parse.additional_commands)" % HELPER_DIR
-        )
+        violations.append("regenerate with: python3 tools/cmake/gen_signatures.py")
 
     blocks = comment_blocks(root)
     for name, spec in sorted(generated.items()):

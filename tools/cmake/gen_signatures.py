@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any, List, NoReturn, Optional, Tuple
 
-import yaml  # type: ignore[import-untyped]  # cmakelang's dependency; no stubs in the image
+import yaml  # type: ignore[import-untyped]  # cmakelang's yaml extra (PyYAML); no type stubs
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".cmake-format.yaml"
