@@ -41,3 +41,202 @@ lint:
     - C0305 # Too many newlines between statements
     - R0912 # Too many branches - complex logic is sometimes necessary
     - R0915 # Too many statements - some files are legitimately large
+
+# ------------------------------------------------------------------------------
+# Project helper signatures, so helper calls are laid out as keyword and value
+# lines. Generated from the helpers; regenerate when their keywords change:
+#   cmake-genparsers -f yaml cmake/seeker/*.cmake
+# tools/cmake/check_leaf_cmake.py fails when they differ from the helpers.
+# ------------------------------------------------------------------------------
+parse:
+  additional_commands:
+    seeker_guard:
+      pargs:
+        nargs: 1
+    seeker_module:
+      pargs:
+        nargs: 1
+    seeker_add_test_subdirs:
+      pargs:
+        nargs: "*"
+        flags:
+          - UTST
+          - PTST
+          - DTST
+      kwargs: {}
+    seeker_is_cuda_target:
+      pargs:
+        nargs: 2
+    seeker_standard_optins:
+      pargs:
+        nargs: 1
+    seeker_coverage_init:
+      pargs:
+        nargs: 0
+    seeker_coverage_register:
+      pargs:
+        nargs: 2
+    seeker_cuda_sources:
+      pargs:
+        nargs: 1+
+        flags:
+          - NO_CUDART
+          - SEPARABLE
+          - RESOLVE_DEVICE_SYMBOLS
+      kwargs:
+        DEFINE: 1
+        FILES: +
+    seeker_nvml_enable:
+      pargs:
+        nargs: 1
+    seeker_cupti_enable:
+      pargs:
+        nargs: 1
+    seeker_print_config_summary:
+      pargs:
+        nargs: 0
+    seeker_add_interface_library:
+      pargs:
+        nargs: "*"
+        flags:
+          - BAREMETAL
+          - NO_INSTALL
+      kwargs:
+        NAME: 1
+        INC: 1
+        DEPS_INTERFACE: +
+        DEFS: +
+        FEATURES: +
+        REQUIRES: +
+    seeker_add_library:
+      pargs:
+        nargs: "*"
+        flags:
+          - BAREMETAL
+      kwargs:
+        NAME: 1
+        TYPE: 1
+        INC: 1
+        SRC: +
+        DEPS_PUBLIC: +
+        DEPS_PRIVATE: +
+        REQUIRES: +
+    seeker_add_app:
+      pargs:
+        nargs: "*"
+        flags:
+          - NO_INSTALL
+          - NO_UPX
+          - BAREMETAL
+      kwargs:
+        NAME: 1
+        SRC: +
+        LINK: +
+        INC: +
+        DEFS: +
+        FEATURES: +
+        REQUIRES: +
+    seeker_add_tool:
+      pargs:
+        nargs: "*"
+        flags:
+          - NO_INSTALL
+          - BAREMETAL
+      kwargs:
+        NAME: 1
+        SRC: +
+        LINK: +
+        INC: +
+        DEFS: +
+        FEATURES: +
+        REQUIRES: +
+    seeker_add_library_cuda:
+      pargs:
+        nargs: "*"
+        flags:
+          - SEPARABLE
+          - RESOLVE_DEVICE_SYMBOLS
+          - NO_CUDART
+          - NO_NVML
+      kwargs:
+        NAME: 1
+        CORE: 1
+        TYPE: 1
+        INC: 1
+        SRC: +
+        DEPS_PUBLIC: +
+        DEPS_PRIVATE: +
+    seeker_finalize_cpp_tools:
+      pargs:
+        nargs: 0
+    seeker_add_gtest:
+      pargs:
+        nargs: "*"
+        flags:
+          - TIMING_ALL
+          - NO_COVERAGE
+      kwargs:
+        TARGET: 1
+        INC: 1
+        WORKING_DIR: 1
+        RESOURCE_LOCK: 1
+        COVERAGE_FOR: 1
+        REQUIRES_THREADS: 1
+        SOURCES: +
+        CUDA: +
+        LINK: +
+        LINK_OPTIONS: +
+        LABELS: +
+        TIMING_TESTS: +
+        TIMING_PATTERNS: +
+    seeker_add_ptest:
+      pargs:
+        nargs: "*"
+        flags: []
+      kwargs:
+        TARGET: 1
+        INC: 1
+        SOURCES: +
+        CUDA: +
+        LINK: +
+    seeker_add_devtest:
+      pargs:
+        nargs: "*"
+        flags: []
+      kwargs:
+        TARGET: 1
+        INC: 1
+        SOURCES: +
+        CUDA: +
+        LINK: +
+    seeker_add_doxygen:
+      pargs:
+        nargs: 1+
+        flags:
+          - HEADERS_ONLY
+          - NO_TST
+      kwargs:
+        README: 1
+        SRC: 1
+        INC: 1
+        TST: 1
+        DOCS: 1
+        TOOLS: 1
+        TEMPLATES: 1
+        EXTRA_DIRS: +
+    seeker_install_docs:
+      pargs:
+        nargs: 1+
+        flags: []
+      kwargs:
+        DESTINATION: 1
+    seeker_add_upx_copy:
+      pargs:
+        nargs: 1
+    seeker_clang_tidy_cuda:
+      pargs:
+        nargs: 1+
+        flags:
+          - ALLOW_FAILURE
+      kwargs:
+        FILES: +

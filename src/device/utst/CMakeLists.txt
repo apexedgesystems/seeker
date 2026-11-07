@@ -13,14 +13,8 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerDevice
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_device
-  fmt::fmt
-  LABELS
-  diagnostics
-  device
+  TARGET TestSeekerDevice
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_device fmt::fmt
+  LABELS diagnostics device
 )

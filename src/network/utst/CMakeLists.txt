@@ -14,15 +14,8 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerNetwork
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_network
-  fmt::fmt
-  seeker_test_support
-  LABELS
-  diagnostics
-  network
+  TARGET TestSeekerNetwork
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_network fmt::fmt seeker_test_support
+  LABELS diagnostics network
 )

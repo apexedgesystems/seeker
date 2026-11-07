@@ -3,27 +3,35 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
 
 # ------------------------------------------------------------------------------
-# seeker_cuda_sources(<target> FILES <cu...>
+# seeker_cuda_sources(<target> FILES <files...>
 #                      [NO_CUDART] [SEPARABLE] [RESOLVE_DEVICE_SYMBOLS]
-#                      [DEFINE <n>])
+#                      [DEFINE <name>])
 #
-# Add CUDA source files to an existing target (no-op when CUDA inactive).
-# Links CUDA::cudart by default. Defines SEEKER_HAS_CUDA=1 unless overridden.
+# Add CUDA sources to an existing target; a no-op unless the CUDA toolkit is
+# found and the CUDA language enabled. Separable compilation and device-symbol
+# resolution are OFF unless SEPARABLE or RESOLVE_DEVICE_SYMBOLS is given. The
+# target gets the compile definition <name>=1 (DEFINE, default SEEKER_HAS_CUDA)
+# and links CUDA::cudart unless NO_CUDART, PRIVATE (INTERFACE for an INTERFACE
+# target).
+#
+# Arguments:
+#   FILES                   <files...>   required
+#   DEFINE                  <name>       optional (default SEEKER_HAS_CUDA)
+#   NO_CUDART                            optional flag
+#   SEPARABLE                            optional flag
+#   RESOLVE_DEVICE_SYMBOLS               optional flag
 # ------------------------------------------------------------------------------
 function (seeker_cuda_sources _target)
+  cmake_parse_arguments(CU "NO_CUDART;SEPARABLE;RESOLVE_DEVICE_SYMBOLS" "DEFINE" "FILES" ${ARGN})
+  _seeker_check_arguments(seeker_cuda_sources CU REQUIRED FILES)
   seeker_guard(${_target})
 
   # Require both toolkit and language
   if (NOT CUDAToolkit_FOUND OR NOT CMAKE_CUDA_COMPILER)
     return()
-  endif ()
-
-  cmake_parse_arguments(CU "NO_CUDART;SEPARABLE;RESOLVE_DEVICE_SYMBOLS" "DEFINE" "FILES" ${ARGN})
-
-  if (NOT CU_FILES)
-    message(FATAL_ERROR "seeker_cuda_sources: no FILES specified for '${_target}'")
   endif ()
 
   # Determine target type for PRIVATE vs INTERFACE
@@ -153,8 +161,12 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_nvml_enable(<target>)
 #
-# Enable NVML usage when libnvidia-ml and nvml.h are available.
-# Defines COMPAT_NVML_AVAILABLE=1 (found) or COMPAT_NVML_AVAILABLE=0 (missing).
+# Enable NVML usage when libnvidia-ml and nvml.h are available: links the
+# library, adds its include directory and RPATH, and defines
+# COMPAT_NVML_AVAILABLE=1; defines COMPAT_NVML_AVAILABLE=0 when NVML is missing
+# and on bare-metal builds. PUBLIC (INTERFACE for an INTERFACE target). A target
+# a factory skipped on this platform is ignored; any other name that is not a
+# target fails the configure.
 #
 # Search priority:
 #   1. NVML_ROOT / NVIDIA_ML_ROOT environment variables
@@ -163,8 +175,9 @@ endfunction ()
 #   4. Stubs (link-time only, runtime requires driver)
 # ------------------------------------------------------------------------------
 function (seeker_nvml_enable _target)
-  # Silently return if target doesn't exist (skipped by BAREMETAL guard)
-  if (NOT TARGET "${_target}")
+  _seeker_reject_extra_arguments(seeker_nvml_enable ${ARGN})
+  _seeker_target_exists(seeker_nvml_enable "${_target}" _exists)
+  if (NOT _exists)
     return()
   endif ()
 
@@ -257,14 +270,17 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_cupti_enable(<target>)
 #
-# Enable CUPTI usage when libcupti is available.
-# Defines COMPAT_CUPTI_AVAILABLE=1 (found) or COMPAT_CUPTI_AVAILABLE=0 (missing).
+# Enable CUPTI usage when libcupti is available: links the library, adds the
+# CUPTI include directory and defines COMPAT_CUPTI_AVAILABLE=1; defines
+# COMPAT_CUPTI_AVAILABLE=0 when CUPTI or the CUDA toolkit is missing. PUBLIC
+# (INTERFACE for an INTERFACE target). <target> must exist.
 #
 # Search priority:
 #   1. CUDAToolkit paths (extras/CUPTI or main lib dir)
 #   2. System CUDA paths (native builds only)
 # ------------------------------------------------------------------------------
 function (seeker_cupti_enable _target)
+  _seeker_reject_extra_arguments(seeker_cupti_enable ${ARGN})
   seeker_guard(${_target})
 
   # Determine visibility scope for this target type

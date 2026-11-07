@@ -20,27 +20,21 @@ set(CPP_SOURCES "${SRC_DIR}/CanBusInfo.cpp" "${SRC_DIR}/GpioInfo.cpp" "${SRC_DIR
 # ------------------------------------------------------------------------------
 
 seeker_add_library(
-  NAME
-  ${LIB_NAME}
-  TYPE
-  SHARED
-  INC
-  "${INC_DIR}"
-  SRC
-  ${CPP_SOURCES}
-  DEPS_PUBLIC
-  seeker_helpers
-  fmt::fmt
+  NAME ${LIB_NAME}
+  TYPE SHARED
+  INC "${INC_DIR}"
+  SRC ${CPP_SOURCES}
+  DEPS_PUBLIC seeker_helpers fmt::fmt
 )
 
 # ------------------------------------------------------------------------------
-# Opt-ins (coverage, doxygen, UPX)
+# Opt-ins
 # ------------------------------------------------------------------------------
 
 seeker_standard_optins(${LIB_NAME})
 
 # ------------------------------------------------------------------------------
-# Production documentation (release builds only)
+# Documentation
 # ------------------------------------------------------------------------------
 
 seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/device")
@@ -49,11 +43,4 @@ seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/dev
 # Subdirectories
 # ------------------------------------------------------------------------------
 
-if (PROJECT_IS_TOP_LEVEL)
-  if (EXISTS "${UTST_DIR}/CMakeLists.txt")
-    add_subdirectory(utst)
-  endif ()
-  if (EXISTS "${PTST_DIR}/CMakeLists.txt")
-    add_subdirectory(ptst)
-  endif ()
-endif ()
+seeker_add_test_subdirs()

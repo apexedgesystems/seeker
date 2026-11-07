@@ -1,8 +1,5 @@
 # ==============================================================================
 # Seeker Source Tree
-#
-# Domain libraries for Linux system diagnostics.
-# Each domain is a separate shared library for minimal linking.
 # ==============================================================================
 
 add_subdirectory(helpers)

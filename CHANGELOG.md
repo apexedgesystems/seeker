@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 [#8]: https://github.com/apexedgesystems/seeker/pull/8
+[#9]: https://github.com/apexedgesystems/seeker/pull/9
 
 ---
 
@@ -85,6 +86,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The random-read benchmark asks the kernel to drop its file's cached pages
   after setup (best effort), so its latency is the device's where the kernel
   honours the request (not on tmpfs)
+- Project CMake helpers validate their arguments and own every target's
+  mechanics; leaf CMake files are declarative ([#9])
 
 ### Fixed
 

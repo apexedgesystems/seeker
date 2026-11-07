@@ -3,6 +3,7 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
 
 # ==============================================================================
 # Doxygen Documentation
@@ -20,25 +21,37 @@ endif ()
 #                     [EXTRA_DIRS <dirs...>]
 #                     [HEADERS_ONLY] [NO_TST])
 #
-# Generate API documentation for <target> using Doxygen.
-# Output: ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html
+# Add a <target>_docs target (part of the global docs target) that runs Doxygen
+# into ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html. SRC, TST, DOCS, TOOLS,
+# TEMPLATES and README default to src, tst, docs, tools, templates and README.md
+# under the current source directory when those exist, INC to inc; EXTRA_DIRS
+# adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests. A
+# no-op unless PROJECT_BUILD_DOCS is ON; a warning and no docs target when
+# Doxygen is not found.
 #
-# Auto-detected directories (if they exist):
-#   src, inc, tst, docs, tools, templates
-#
-# For custom directories, use EXTRA_DIRS.
-# Respects PROJECT_BUILD_DOCS toggle.
+# Arguments:
+#   README      <path>       optional
+#   SRC         <dir>        optional
+#   INC         <dir>        optional (default inc, even when absent)
+#   TST         <dir>        optional
+#   DOCS        <dir>        optional
+#   TOOLS       <dir>        optional
+#   TEMPLATES   <dir>        optional
+#   EXTRA_DIRS  <dirs...>    optional
+#   HEADERS_ONLY             optional flag
+#   NO_TST                   optional flag
 # ------------------------------------------------------------------------------
 function (seeker_add_doxygen _target)
+  cmake_parse_arguments(
+    DOX "HEADERS_ONLY;NO_TST" "README;SRC;INC;TST;DOCS;TOOLS;TEMPLATES" "EXTRA_DIRS" ${ARGN}
+  )
+  _seeker_check_arguments(seeker_add_doxygen DOX)
+
   if (NOT PROJECT_BUILD_DOCS)
     return()
   endif ()
 
   seeker_guard(${_target})
-
-  cmake_parse_arguments(
-    DOX "HEADERS_ONLY;NO_TST" "README;SRC;INC;TST;DOCS;TOOLS;TEMPLATES" "EXTRA_DIRS" ${ARGN}
-  )
 
   # Defaults - auto-detect standard directories
   if (DOX_HEADERS_ONLY)
@@ -152,20 +165,23 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # seeker_install_docs(<path> [DESTINATION <subdir>])
 #
-# Install a markdown file or directory to CMAKE_INSTALL_DOCDIR.
-# Only runs for Release/MinSizeRel/RelWithDebInfo builds.
-# Directories are installed recursively. Files are installed as-is.
-# DESTINATION places content under a subdirectory of DOCDIR.
+# Install a markdown file, or a directory recursively, to CMAKE_INSTALL_DOCDIR
+# or the DESTINATION subdirectory of it. A no-op unless CMAKE_BUILD_TYPE is
+# empty, Release, MinSizeRel or RelWithDebInfo.
+#
+# Arguments:
+#   DESTINATION  <subdir>    optional
 # ------------------------------------------------------------------------------
 function (seeker_install_docs _path)
+  cmake_parse_arguments(DOC "" "DESTINATION" "" ${ARGN})
+  _seeker_check_arguments(seeker_install_docs DOC)
+
   if (CMAKE_BUILD_TYPE)
     string(TOUPPER "${CMAKE_BUILD_TYPE}" _bt)
     if (NOT _bt MATCHES "^(RELEASE|MINSIZEREL|RELWITHDEBINFO)$")
       return()
     endif ()
   endif ()
-
-  cmake_parse_arguments(DOC "" "DESTINATION" "" ${ARGN})
 
   set(_dest "${CMAKE_INSTALL_DOCDIR}")
   if (DOC_DESTINATION)
@@ -188,11 +204,14 @@ option(UPX_COMPRESS_SHARED "Allow UPX on shared libraries" OFF)
 # ------------------------------------------------------------------------------
 # seeker_add_upx_copy(<target>)
 #
-# Create UPX-compressed copy under <artifact_dir>/upx/.
-# Respects ENABLE_UPX toggle. Only compresses executables by default.
-# Only runs for Release/MinSizeRel builds (skips Debug/RelWithDebInfo).
+# After each build of <target>, write a UPX-compressed copy to
+# <artifact_dir>/upx/<file>.upx (a plain copy when UPX fails). Executables only,
+# and shared or module libraries with UPX_COMPRESS_SHARED. A no-op unless
+# ENABLE_UPX is ON and CMAKE_BUILD_TYPE is empty, Release or MinSizeRel; a
+# warning when upx is not found.
 # ------------------------------------------------------------------------------
 function (seeker_add_upx_copy _target)
+  _seeker_reject_extra_arguments(seeker_add_upx_copy ${ARGN})
   if (NOT ENABLE_UPX)
     return()
   endif ()
@@ -285,13 +304,25 @@ if (NOT DEFINED SEEKER_CLANG_TIDY_CUDA_HEADER_FILTER)
 endif ()
 
 # ------------------------------------------------------------------------------
-# seeker_clang_tidy_cuda(<target> FILES <cu...> [ALLOW_FAILURE])
+# seeker_clang_tidy_cuda(<target> FILES <files...> [ALLOW_FAILURE])
 #
-# Run clang-tidy on CUDA sources via Clang's CUDA frontend.
-# No-op when CUDA not found, ENABLE_CLANG_TIDY=OFF, or no FILES.
+# After each build of <target>, run clang-tidy on the given CUDA sources through
+# Clang's CUDA frontend; ALLOW_FAILURE keeps findings from failing the build. A
+# no-op for an INTERFACE target, without the CUDA toolkit, with
+# ENABLE_CLANG_TIDY OFF, or when clang-tidy is not found. A target a factory
+# skipped on this platform is ignored; any other name that is not a target
+# fails the configure.
+#
+# Arguments:
+#   FILES          <files...>   required
+#   ALLOW_FAILURE               optional flag
 # ------------------------------------------------------------------------------
 function (seeker_clang_tidy_cuda _target)
-  if (NOT TARGET "${_target}")
+  cmake_parse_arguments(CT "ALLOW_FAILURE" "" "FILES" ${ARGN})
+  _seeker_check_arguments(seeker_clang_tidy_cuda CT REQUIRED FILES)
+
+  _seeker_target_exists(seeker_clang_tidy_cuda "${_target}" _exists)
+  if (NOT _exists)
     return()
   endif ()
 
@@ -305,11 +336,6 @@ function (seeker_clang_tidy_cuda _target)
   endif ()
 
   if (DEFINED ENABLE_CLANG_TIDY AND NOT ENABLE_CLANG_TIDY)
-    return()
-  endif ()
-
-  cmake_parse_arguments(CT "ALLOW_FAILURE" "" "FILES" ${ARGN})
-  if (NOT CT_FILES)
     return()
   endif ()
 

@@ -19,17 +19,9 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerCpu
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_cpu
-  fmt::fmt
-  LABELS
-  diagnostics
-  cpu
-  TIMING_PATTERNS
-  "CpuIdleDelta.*"
-  "CpuUtilization.*"
+  TARGET TestSeekerCpu
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_cpu fmt::fmt
+  LABELS diagnostics cpu
+  TIMING_PATTERNS "CpuIdleDelta.*" "CpuUtilization.*"
 )

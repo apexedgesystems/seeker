@@ -14,15 +14,8 @@ set(UNIT_TEST_SOURCES
 )
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerMemory
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  LINK
-  seeker_memory
-  fmt::fmt
-  seeker_test_support
-  LABELS
-  diagnostics
-  memory
+  TARGET TestSeekerMemory
+  SOURCES ${UNIT_TEST_SOURCES}
+  LINK seeker_memory fmt::fmt seeker_test_support
+  LABELS diagnostics memory
 )

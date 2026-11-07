@@ -16,17 +16,9 @@ set(UNIT_TEST_SOURCES
 set(CUDA_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/GpuBench_uTest.cu")
 
 seeker_add_gtest(
-  TARGET
-  TestSeekerGpu
-  SOURCES
-  ${UNIT_TEST_SOURCES}
-  CUDA
-  ${CUDA_TEST_SOURCES}
-  LINK
-  seeker_gpu
-  seeker_gpu_cuda
-  fmt::fmt
-  LABELS
-  diagnostics
-  gpu
+  TARGET TestSeekerGpu
+  SOURCES ${UNIT_TEST_SOURCES}
+  CUDA ${CUDA_TEST_SOURCES}
+  LINK seeker_gpu seeker_gpu_cuda fmt::fmt
+  LABELS diagnostics gpu
 )
