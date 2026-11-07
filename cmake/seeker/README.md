@@ -16,6 +16,7 @@ them.
 6. [Coverage](#6-coverage)
 7. [The Check](#7-the-check)
 8. [Extending a Helper](#8-extending-a-helper)
+9. [This project](#9-this-project)
 
 ---
 
@@ -26,20 +27,22 @@ A module is a directory under `src/` with `inc/`, `src/` and a
 
 ```cmake
 include(seeker/All)
-seeker_module(seeker_example)
+seeker_module(example)
 
 seeker_add_library(
   NAME ${LIB_NAME}
   TYPE SHARED
   INC "${INC_DIR}"
   SRC "${SRC_DIR}/Example.cpp"
-  DEPS_PUBLIC seeker_helpers fmt::fmt
 )
 ```
 
-Add `add_subdirectory(example)` to `src/CMakeLists.txt`, and end the file with
+That builds `libseeker_example.so` with the alias `seeker::example`;
+[section 9](#9-this-project) gives this project's module names. Add
+`add_subdirectory(example)` to `src/CMakeLists.txt`, beside the others, and
+end the file with
 `seeker_add_test_subdirs()` when the module gets a `utst/` directory. Then run
-the check, which `make compose-format-check` also runs:
+the check, which the format gate also runs:
 
 ```bash
 python3 tools/cmake/check_leaf_cmake.py
@@ -64,10 +67,10 @@ A leaf file contains only:
 - helper calls, including explicit opt-ins after the main call
   (`seeker_standard_optins`, `seeker_nvml_enable`, `seeker_install_docs`),
 - a local function that wraps a helper for a family of similar targets
-  (`add_diag_tool` in `tools/cpp`),
+  ([section 9](#9-this-project) names this project's),
 - `seeker_add_test_subdirs()` at the end of a module file, which adds the
-  module's test directories, and `add_subdirectory` in the composition files
-  (`src/CMakeLists.txt`, `tools/CMakeLists.txt`).
+  module's test directories, `add_subdirectory` in the composition files, and
+  `seeker_finalize_cpp_tools()` once, after the last C++ tool.
 
 When a helper lacks an argument a target needs, extend the helper
 ([section 8](#8-extending-a-helper)). Never add `add_library`,
@@ -81,70 +84,11 @@ belongs in the module and tool READMEs.
 
 ## 3. Model Files
 
-| Shape                           | File                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| Library                         | [src/network/CMakeLists.txt](../../src/network/CMakeLists.txt)           |
-| Unit tests, with a CUDA variant | [src/gpu/utst/CMakeLists.txt](../../src/gpu/utst/CMakeLists.txt)         |
-| CPU library with a CUDA sidecar | [src/gpu/CMakeLists.txt](../../src/gpu/CMakeLists.txt)                   |
-| Private test support            | [src/helpers/utst/CMakeLists.txt](../../src/helpers/utst/CMakeLists.txt) |
-| Tools                           | [tools/cpp/CMakeLists.txt](../../tools/cpp/CMakeLists.txt)               |
-
-The library model:
-
-```cmake
-# ==============================================================================
-# Module: seeker_network
-#
-# Network diagnostics: interface info/stats, socket buffers, ethtool,
-# network isolation, loopback benchmarks.
-# ==============================================================================
-
-include(seeker/All)
-seeker_module(seeker_network)
-
-set(CPP_SOURCES
-    "${SRC_DIR}/InterfaceInfo.cpp" "${SRC_DIR}/InterfaceStats.cpp"
-    "${SRC_DIR}/SocketBufferConfig.cpp" "${SRC_DIR}/NetworkIsolation.cpp"
-    "${SRC_DIR}/LoopbackBench.cpp" "${SRC_DIR}/EthtoolInfo.cpp"
-)
-
-seeker_add_library(
-  NAME ${LIB_NAME}
-  TYPE SHARED
-  INC "${INC_DIR}"
-  SRC ${CPP_SOURCES}
-  DEPS_PUBLIC seeker_helpers fmt::fmt
-)
-
-seeker_standard_optins(${LIB_NAME})
-seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/network")
-
-seeker_add_test_subdirs()
-```
-
-The unit-test model, whose CUDA test sources are compiled only when CUDA is
-active:
-
-```cmake
-include(seeker/All)
-
-set(UNIT_TEST_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/GpuTopology_uTest.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/PcieStatus_uTest.cpp"
-)
-
-set(CUDA_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/GpuBench_uTest.cu")
-
-seeker_add_gtest(
-  TARGET TestSeekerGpu
-  SOURCES ${UNIT_TEST_SOURCES}
-  CUDA ${CUDA_TEST_SOURCES}
-  LINK seeker_gpu seeker_gpu_cuda fmt::fmt
-  LABELS diagnostics gpu
-)
-```
-
-The real files carry the section dividers and the complete source lists.
+Each target shape has a model file: a leaf file in the tree to copy, with the
+section dividers and the complete source lists. [Section 9](#9-this-project)
+lists this project's model files and quotes the library and test models;
+[section 4](#4-adding-a-target) gives the shape of a target the tree does not
+have yet.
 
 ---
 
@@ -153,15 +97,23 @@ The real files carry the section dividers and the complete source lists.
 ### A library
 
 Add `src/<domain>/CMakeLists.txt` in the shape of the library model and an
-`add_subdirectory(<domain>)` line to `src/CMakeLists.txt`. Name the library
-`seeker_<domain>`, list every source, and put public dependencies in
-`DEPS_PUBLIC` and private ones in `DEPS_PRIVATE`. A header-only library uses
-`seeker_add_interface_library` instead.
+`add_subdirectory(<domain>)` line to `src/CMakeLists.txt`, beside the others.
+The name given to
+`seeker_module` is the library's target; its alias is `seeker::<name>` and its
+file `libseeker_<name>.so`, or `lib<name>.so` when the name already starts with
+`seeker_` (`OUTPUT_NAME` overrides the file stem). [Section 9](#9-this-project)
+gives this project's module names. List every source, and put public
+dependencies in `DEPS_PUBLIC` and private ones in `DEPS_PRIVATE`. A header-only
+library uses `seeker_add_interface_library` instead.
+
+`seeker_add_doxygen` writes each Doxyfile from `Doxyfile.common.in` in this
+directory, part of the layer; a project's `docs/Doxyfile.common.in` replaces
+it.
 
 ### A unit test
 
 Add `src/<domain>/utst/CMakeLists.txt` in the shape of the test model, with the
-library and `fmt::fmt` in `LINK` and the domain in `LABELS`; the module file's
+library in `LINK` and the domain in `LABELS`; the module file's
 `seeker_add_test_subdirs()` adds the directory, and likewise `ptst/` and
 `dtst/` for performance and development tests. Tests that measure
 wall time or share a machine-wide resource go in the serial Timing lane with
@@ -184,9 +136,9 @@ never installed or exported:
 
 ```cmake
 seeker_add_interface_library(
-  NAME seeker_test_support
+  NAME <domain>_test_support
   INC "${CMAKE_CURRENT_SOURCE_DIR}/inc"
-  DEPS_INTERFACE seeker_scratch_tree seeker_helpers
+  DEPS_INTERFACE <domain>
   NO_INSTALL
 )
 ```
@@ -196,23 +148,19 @@ Tests in other domains link it by name. A test that needs linker options
 
 ### A tool
 
-Add the source under `tools/cpp/<domain>/` and one line to its domain section
-of `tools/cpp/CMakeLists.txt`: `add_diag_tool(<tool-name> <domain>)`. A tool
-outside that pattern is its own `seeker_add_tool` call.
+A tool is one `seeker_add_tool` call, or a call through a local function that
+wraps it for a family of similar tools. Every C++ tool joins the
+`seeker_cpp_tools` target, which `seeker_finalize_cpp_tools()` creates after the
+last tool; [section 9](#9-this-project) says where this project's tools live.
 
----
+### Argument checks
 
-## 5. Helper Reference
-
-### Arguments
-
-The helpers in `Core`, `Targets`, `Testing`, `Cuda`, `Coverage` and `Tooling`
-check their arguments before any configuration-dependent skip, so these
-mistakes fail every configure, with the helper's name and the calling line: an
-unknown argument (`seeker_add_interface_library: unknown arguments: DEPS_PUBLIC
-fmt::fmt`), a keyword without a value (`seeker_add_gtest: no value given for
-CUDA`, also when the value is an empty variable), a missing required keyword,
-an extra argument to a helper with positional parameters, an unknown
+The helpers check their arguments before any configuration-dependent skip, so
+these mistakes fail every configure, with the helper's name and the calling
+line: an unknown argument (`seeker_add_interface_library: unknown arguments:
+DEPS_PUBLIC fmt::fmt`), a keyword without a value (`seeker_add_gtest: no value
+given for CUDA`, also when the value is an empty variable), a missing required
+keyword, an extra argument to a helper with positional parameters, an unknown
 requirement, a `TYPE` other than `STATIC` or `SHARED`, an unknown test
 directory kind and a `REQUIRES_THREADS` that is not a positive integer.
 
@@ -249,8 +197,9 @@ test executables too.
 | `CUDA`      | the CUDA toolkit found and the CUDA language enabled |
 
 `PTHREADS` is retired, and naming it fails the configure with the migration:
-POSIX means a hosted platform; link `Threads::Threads` through `DEPS_PUBLIC`,
-`DEPS_PRIVATE` or `DEPS_INTERFACE` on a library, `LINK` on a test, tool or app.
+POSIX means a hosted UNIX platform; link `Threads::Threads` through
+`DEPS_PUBLIC`, `DEPS_PRIVATE` or `DEPS_INTERFACE` on a library, `LINK` on a
+test, tool or app.
 
 `REQUIRES_TARGETS` names targets that must exist when the helper runs, so a
 target built only with an optional package declares the package's target
@@ -269,9 +218,13 @@ ends with `; enabled by <text>`.
 A skipped target is recorded. `seeker_standard_optins`, `seeker_nvml_enable`,
 `seeker_clang_tidy_cuda` and the sidecar's `CORE` ignore a recorded name and
 fail on any other name that is not a target. The configure summary lists every
-skipped target once, with its reason, in a `Skipped targets` block at the end
-of the configure; with `SEEKER_TARGETS_VERBOSE` each skip is also printed
-where it happens.
+skip a helper records once, with its reason, in a `Skipped targets` block at
+the end of the configure; with `SEEKER_TARGETS_VERBOSE` each skip is also
+printed where it happens.
+
+---
+
+## 5. Helper Reference
 
 <!-- helper reference: rendered by tools/cmake/gen_helper_reference.py -->
 
@@ -753,8 +706,10 @@ The coverage flags are never installed or exported.
 ## 7. The Check
 
 `tools/cmake/check_leaf_cmake.py` keeps leaf files declarative. It reads every
-`CMakeLists.txt` and `*.cmake` under `src/` and `tools/` (`LEAF_DIRS`), outside
-hidden directories, prints each file's commands, and fails on:
+`CMakeLists.txt` and `*.cmake` under `src/` and `tools/` (`LEAF_DIRS`) except
+inside a tool cache (a `.git`, `.venv` or `__pycache__` directory, or a
+`target/` directory beside a `Cargo.toml`), prints each file's commands, and
+fails on:
 
 - a command that constructs or changes a target or the build settings outside
   the helpers: `add_library`, `add_executable`, any `target_*`,
@@ -775,19 +730,22 @@ hidden directories, prints each file's commands, and fails on:
   one quoted argument while CMake reads `'` as an ordinary character, named
   with its line: a form the check does not support; write the argument in
   double quotes;
-- helper signatures in `.cmake-format.yaml` that differ from the helpers, and a
-  helper comment block that does not name one of its keywords;
+- helper signatures in `.cmake-format.yaml` that differ from the helpers;
 - a [helper reference](#5-helper-reference) that differs from the rendering of
   the helpers' comment blocks, or a public helper's block that does not read
+  or whose argument rows do not name exactly the keywords it parses
   (`tools/cmake/gen_helper_reference.py` names the block and the problem).
+
+The helper directory is the one child of `cmake/` that holds `All.cmake`; the
+check finds it, both generators take it from the check, and with none or more
+than one all three stop with a one-line message.
 
 It reads the files with the lexer of cmakelang, the package of cmake-format, so
 comments, quoted and bracket arguments are not commands. The helpers
 themselves, the root `CMakeLists.txt` and `ExternalDependencies.cmake` are not
 leaf files.
 
-It runs as a pre-commit hook, so `make format-check`,
-`make compose-format-check` and the CI format step run it; by hand:
+It runs as a pre-commit hook in the format gate; by hand:
 
 ```bash
 python3 tools/cmake/check_leaf_cmake.py
@@ -796,8 +754,7 @@ python3 tools/cmake/check_leaf_cmake.py
 It needs Python 3 and cmakelang with its YAML extra (PyYAML), as
 `pip install "cmakelang[YAML]"` installs them: cmakelang supplies the lexer,
 cmake-format and `cmake-genparsers`, and cmake-format and
-`tools/cmake/gen_signatures.py` read YAML through PyYAML. The development
-containers have both.
+`tools/cmake/gen_signatures.py` read YAML through PyYAML.
 
 ---
 
@@ -824,3 +781,111 @@ containers have both.
 
 Add a new helper only for a target family the existing ones cannot express; it
 follows the same rules.
+
+---
+
+## 9. This project
+
+Sections 1 to 8 are the same in every project that uses these helpers,
+apart from the prefix and the helpers that section 5 renders; this section
+holds what is Seeker's own.
+
+### Module names
+
+A module is named `seeker_<domain>`: `seeker_module(seeker_network)` gives the
+target `seeker_network`, the alias `seeker::seeker_network` and the file
+`libseeker_network.so`.
+
+### Model files
+
+| Shape                           | File                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| Library                         | [src/network/CMakeLists.txt](../../src/network/CMakeLists.txt)           |
+| Unit tests, with a CUDA variant | [src/gpu/utst/CMakeLists.txt](../../src/gpu/utst/CMakeLists.txt)         |
+| CPU library with a CUDA sidecar | [src/gpu/CMakeLists.txt](../../src/gpu/CMakeLists.txt)                   |
+| Private test support            | [src/helpers/utst/CMakeLists.txt](../../src/helpers/utst/CMakeLists.txt) |
+| Tools                           | [tools/cpp/CMakeLists.txt](../../tools/cpp/CMakeLists.txt)               |
+
+The library model:
+
+```cmake
+# ==============================================================================
+# Module: seeker_network
+#
+# Network diagnostics: interface info/stats, socket buffers, ethtool,
+# network isolation, loopback benchmarks.
+# ==============================================================================
+
+include(seeker/All)
+seeker_module(seeker_network)
+
+set(CPP_SOURCES
+    "${SRC_DIR}/InterfaceInfo.cpp" "${SRC_DIR}/InterfaceStats.cpp"
+    "${SRC_DIR}/SocketBufferConfig.cpp" "${SRC_DIR}/NetworkIsolation.cpp"
+    "${SRC_DIR}/LoopbackBench.cpp" "${SRC_DIR}/EthtoolInfo.cpp"
+)
+
+seeker_add_library(
+  NAME ${LIB_NAME}
+  TYPE SHARED
+  INC "${INC_DIR}"
+  SRC ${CPP_SOURCES}
+  DEPS_PUBLIC seeker_helpers fmt::fmt
+)
+
+seeker_standard_optins(${LIB_NAME})
+seeker_install_docs("${CMAKE_CURRENT_SOURCE_DIR}/README.md" DESTINATION "api/network")
+
+seeker_add_test_subdirs()
+```
+
+The unit-test model, whose CUDA test sources are compiled only when CUDA is
+active:
+
+```cmake
+include(seeker/All)
+
+set(UNIT_TEST_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/GpuTopology_uTest.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/PcieStatus_uTest.cpp"
+)
+
+set(CUDA_TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/GpuBench_uTest.cu")
+
+seeker_add_gtest(
+  TARGET TestSeekerGpu
+  SOURCES ${UNIT_TEST_SOURCES}
+  CUDA ${CUDA_TEST_SOURCES}
+  LINK seeker_gpu seeker_gpu_cuda fmt::fmt
+  LABELS diagnostics gpu
+)
+```
+
+### Tools
+
+The C++ tools live under `tools/cpp/<domain>/`. Add the source there and one
+line to its domain section of `tools/cpp/CMakeLists.txt`:
+`add_diag_tool(<tool-name> <domain>)`, the local function that wraps
+`seeker_add_tool` for them. A tool outside that pattern is its own
+`seeker_add_tool` call. The file ends with `seeker_finalize_cpp_tools()`, and
+`src/CMakeLists.txt` and `tools/CMakeLists.txt` are the composition files.
+
+### Platforms and toolchains
+
+| Platform                                     | Presets                                                              | Compiler or toolchain file                 | Container                      |
+| -------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------ | ------------------------------ |
+| x86_64 Linux, CUDA when the toolkit is found | `native-linux-debug`, `native-linux-profile`, `native-linux-release` | Clang 21                                   | `dev-cuda`; `dev` without CUDA |
+| NVIDIA Jetson, aarch64 with CUDA             | `jetson-aarch64-debug`, `jetson-aarch64-release`                     | `cmake/toolchains/jetson-aarch64.cmake`    | `dev-jetson`                   |
+| Raspberry Pi, aarch64                        | `rpi-aarch64-debug`, `rpi-aarch64-release`                           | `cmake/toolchains/rpi-aarch64.cmake`       | `dev-rpi`                      |
+| RISC-V 64 Linux                              | `riscv64-linux-debug`, `riscv64-linux-release`                       | `cmake/toolchains/riscv64-linux-gnu.cmake` | `dev-riscv64`                  |
+
+The Makefile's `compose-*` targets configure and build in these containers,
+for example `make compose-debug` and `make compose-jetson-release`; `make help`
+lists them.
+
+### The format gate
+
+`make compose-format-check` runs the format gate, and with it the leaf check,
+in `dev-cuda`; `make format-check` runs it on a host that has the tools, and the
+CI format step runs it in `dev`. The development containers have cmakelang and
+PyYAML.
