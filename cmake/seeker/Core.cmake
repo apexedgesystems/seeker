@@ -75,20 +75,29 @@ endfunction ()
 # Set <out_var> to TRUE when every <required> target exists. Otherwise record
 # with _seeker_skip that <target> is skipped for the missing ones and set
 # <out_var> to FALSE. The helpers that take REQUIRES_TARGETS call it after
-# their platform checks.
+# their platform checks. A missing target with a hint, the GLOBAL property
+# SEEKER_TARGET_HINT_<required> that the code owning the option providing it
+# sets, adds "; enabled by <hint>" to the reason; an identical hint once.
 # ------------------------------------------------------------------------------
 function (_seeker_requires_targets _out_var _target)
   set(_missing "")
+  set(_hints "")
+  set(_seen "")
   foreach (_required IN LISTS ARGN)
     if (NOT TARGET "${_required}")
       list(APPEND _missing "${_required}")
+      get_property(_hint GLOBAL PROPERTY SEEKER_TARGET_HINT_${_required})
+      if (NOT "${_hint}" STREQUAL "" AND NOT "${_hint}" IN_LIST _seen)
+        list(APPEND _seen "${_hint}")
+        string(APPEND _hints "; enabled by ${_hint}")
+      endif ()
     endif ()
   endforeach ()
 
   set(_present TRUE)
   if (_missing)
     list(JOIN _missing ", " _missing_str)
-    _seeker_skip(${_target} "missing targets: ${_missing_str}")
+    _seeker_skip(${_target} "missing targets: ${_missing_str}${_hints}")
     set(_present FALSE)
   endif ()
   set(${_out_var}

@@ -260,6 +260,11 @@ skipped. `seeker_add_gtest`, `seeker_add_ptest`, `seeker_add_tool` and
 link in `DEPS_PUBLIC`, `DEPS_PRIVATE` or `DEPS_INTERFACE` with the visibility
 its headers need.
 
+The code that owns the option providing such a target can register a hint,
+`set_property(GLOBAL PROPERTY SEEKER_TARGET_HINT_<target> "<text>")` (for
+example `"configure with -D<OPTION>=ON"`); a skip for that missing target then
+ends with `; enabled by <text>`.
+
 A skipped target is recorded. `seeker_standard_optins`, `seeker_nvml_enable`,
 `seeker_clang_tidy_cuda` and the sidecar's `CORE` ignore a recorded name and
 fail on any other name that is not a target. The configure summary lists every
