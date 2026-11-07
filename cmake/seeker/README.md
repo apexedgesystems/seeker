@@ -423,7 +423,9 @@ it does.
 With `ENABLE_COVERAGE` (Clang, native Debug builds; `make coverage`),
 `seeker_add_gtest` maps a test to each library in its `LINK` that coverage can
 map, or to its `COVERAGE_FOR` library, instruments both and adds a
-`<test>_coverage` test labelled `Coverage`.
+`<test>_coverage` test labelled `Coverage`. The LLVM tools follow the
+compiler: `llvm-profdata-<N>` and `llvm-cov-<N>` for Clang `<N>`, unless
+`SEEKER_COVERAGE_LLVM_VERSION` names another version.
 
 | Target kind                                        | Participation                                                                  |
 | -------------------------------------------------- | ------------------------------------------------------------------------------ |

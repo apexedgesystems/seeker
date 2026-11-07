@@ -30,10 +30,17 @@ include(seeker/Core)
 
 option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 
+# The LLVM tools follow the compiler: Clang N writes the profiles that
+# llvm-profdata-N and llvm-cov-N read.
+set(_seeker_llvm_version "")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION MATCHES "^([0-9]+)")
+  set(_seeker_llvm_version "${CMAKE_MATCH_1}")
+endif ()
 set(SEEKER_COVERAGE_LLVM_VERSION
-    "21"
-    CACHE STRING "LLVM tools version suffix (e.g., 21 for llvm-cov-21)"
+    "${_seeker_llvm_version}"
+    CACHE STRING "LLVM tools version suffix, N in llvm-cov-N (default: the Clang major version)"
 )
+unset(_seeker_llvm_version)
 
 set(SEEKER_COVERAGE_OUTPUT_DIR
     "${CMAKE_BINARY_DIR}/coverage"
@@ -68,7 +75,8 @@ set_property(GLOBAL PROPERTY SEEKER_COVERAGE_MAPPINGS "")
 # seeker_coverage_init()
 #
 # With ENABLE_COVERAGE, locate llvm-profdata and llvm-cov
-# (SEEKER_COVERAGE_LLVM_VERSION), create the seeker_coverage_flags interface
+# (SEEKER_COVERAGE_LLVM_VERSION, by default the major version of the Clang
+# that compiles), create the seeker_coverage_flags interface
 # target (Clang source-based instrumentation, Debug builds) and generate the
 # coverage-report and coverage-clean targets at the end of the configure.
 # Coverage is turned off with a warning for cross, bare-metal and non-Clang
