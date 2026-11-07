@@ -262,7 +262,10 @@ its headers need.
 
 A skipped target is recorded. `seeker_standard_optins`, `seeker_nvml_enable`,
 `seeker_clang_tidy_cuda` and the sidecar's `CORE` ignore a recorded name and
-fail on any other name that is not a target.
+fail on any other name that is not a target. The configure summary lists every
+skipped target once, with its reason, in a `Skipped targets` block at the end
+of the configure; with `SEEKER_TARGETS_VERBOSE` each skip is also printed
+where it happens.
 
 ### Libraries
 

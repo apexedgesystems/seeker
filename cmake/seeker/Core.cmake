@@ -52,15 +52,18 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # _seeker_skip(<target> <reason>)
 #
-# Record that a target factory did not create <target> on this platform (a
-# bare-metal build or a requirement that does not hold). The helpers that check
-# a target name with _seeker_target_exists (seeker_standard_optins,
-# seeker_nvml_enable, seeker_clang_tidy_cuda, the CUDA sidecar's CORE) skip a
-# recorded name and fail on any other name that is not a target. Prints the
-# reason when SEEKER_TARGETS_VERBOSE is ON.
+# Record that a target helper did not create <target> on this configure (a
+# bare-metal build, a requirement that does not hold, a missing
+# REQUIRES_TARGETS target) and why. The helpers that check a target name with
+# _seeker_target_exists (seeker_standard_optins, seeker_nvml_enable,
+# seeker_clang_tidy_cuda, the CUDA sidecar's CORE) skip a recorded name and
+# fail on any other name that is not a target. seeker_print_config_summary
+# lists the records once; each skip is also printed where it happens when
+# SEEKER_TARGETS_VERBOSE is ON.
 # ------------------------------------------------------------------------------
 function (_seeker_skip _target _reason)
   set_property(GLOBAL APPEND PROPERTY SEEKER_SKIPPED_TARGETS "${_target}")
+  set_property(GLOBAL PROPERTY SEEKER_SKIP_REASON_${_target} "${_reason}")
   if (SEEKER_TARGETS_VERBOSE)
     message(STATUS "[seeker] SKIP ${_target} (${_reason})")
   endif ()
