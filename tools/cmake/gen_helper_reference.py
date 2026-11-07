@@ -2,8 +2,9 @@
 """
 gen_helper_reference.py - Render the helper reference of the CMake guide.
 
-The helper directory is the one child of cmake/ that holds All.cmake. Section 5
-of the README.md there, between its two marker lines, is the rendering of the
+The helper directory is the leaf check's HELPER_DIR, the one child of cmake/
+that holds All.cmake. Section 5 of the README.md there, between its two marker
+lines, is the rendering of the
 comment block above each public helper in the directory's *.cmake files, read
 with the leaf check's reader: per helper its call form, the first paragraph of
 its description and its argument table, grouped by helper file; the rest of the
@@ -25,11 +26,11 @@ share:
 
 The argument rows must name exactly the keywords cmake-genparsers parses from
 the helper, a flag without a value and a keyword with one. A block that does
-not read, rendered prose the guide would read as markup, or a cmake/ with no
-child holding All.cmake or more than one stops the script with nothing
-written. The leaf check fails when the section is not this
-rendering; run the script after changing a comment block. A second run
-changes nothing.
+not read, or rendered prose the guide would read as markup, stops the script
+with nothing written; so does a cmake/ with no child holding All.cmake or more
+than one, which stops the import of the leaf check. The leaf check fails when
+the section is not this rendering; run the script after changing a comment
+block. A second run changes nothing.
 
 Usage:
     python3 tools/cmake/gen_helper_reference.py [--root DIR]
@@ -87,19 +88,9 @@ class Helper(NamedTuple):
 # =============================== Block Reading ================================
 
 
-def helper_dir(root: Path) -> Path:
-    """The helper directory, relative to root: the one child of cmake/ that
-    holds All.cmake."""
-    found = sorted(path.parent.relative_to(root) for path in root.glob("cmake/*/All.cmake"))
-    if len(found) != 1:
-        names = " ".join(str(path) for path in found) or "none"
-        raise BlockError("cmake/ needs exactly one child with All.cmake, found %s" % names)
-    return found[0]
-
-
 def guide(root: Path) -> Path:
     """The guide whose section 5 is rendered: README.md in the helper directory."""
-    return root / helper_dir(root) / "README.md"
+    return root / leaf.HELPER_DIR / "README.md"
 
 
 def _text(where: str, line: str) -> str:
@@ -179,11 +170,10 @@ def check_keywords(helper: Helper, spec: dict) -> None:
 def helpers(root: Path, signatures: Optional[Dict[str, dict]] = None) -> List[Helper]:
     """Every public helper with a block that reads, checked against the
     signatures cmake-genparsers gives (run here when not passed)."""
-    directory = helper_dir(root)
     if signatures is None:
-        signatures = leaf.generated_signatures(root, directory)
+        signatures = leaf.generated_signatures(root)
     found: List[Helper] = []
-    for module, name, block in leaf.helper_blocks(root, directory):
+    for module, name, block in leaf.helper_blocks(root):
         if name.startswith("_"):
             continue
         helper = parse(module, name, block)
@@ -338,7 +328,7 @@ def main() -> None:
         "--root",
         type=Path,
         default=Path(__file__).resolve().parents[2],
-        help="repository root (default: the checkout containing this script)",
+        help="root of a copy of this repository (default: the checkout containing this script)",
     )
     root = parser.parse_args().root.resolve()
     try:

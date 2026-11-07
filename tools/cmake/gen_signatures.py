@@ -3,9 +3,9 @@
 gen_signatures.py - Regenerate the helpers' formatter signatures.
 
 Replaces the parse.additional_commands section of .cmake-format.yaml with the
-output of cmake-genparsers (cmakelang) for the helper files in cmake/<project>/
-(the child directory of cmake/ that holds All.cmake)
-and leaves everything else in the file as it is. The file's structure is read
+output of cmake-genparsers (cmakelang) for the helper files in the leaf check's
+HELPER_DIR (the child directory of cmake/ that holds All.cmake) and leaves
+everything else in the file as it is. The file's structure is read
 with PyYAML, the parser cmake-format itself uses, so the section's boundaries
 are the parser's: quoted keys, comments and blank lines are what the parser
 says they are. The candidate text is loaded again and compared with the
@@ -22,13 +22,12 @@ import sys
 from pathlib import Path
 from typing import Any, List, NoReturn, Optional, Tuple
 
+import check_leaf_cmake as leaf
 import yaml  # type: ignore[import-untyped]  # cmakelang's yaml extra (PyYAML); no type stubs
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".cmake-format.yaml"
-# The helper directory: the one child of cmake/ that holds the layer's All.cmake.
-LAYERS = sorted(path.parent for path in (ROOT / "cmake").glob("*/All.cmake"))
-HELPERS = sorted(LAYERS[0].glob("*.cmake")) if len(LAYERS) == 1 else []
+HELPERS = sorted((ROOT / leaf.HELPER_DIR).glob("*.cmake"))
 SECTION = "parse"
 KEY = "additional_commands"
 
@@ -101,8 +100,6 @@ def trim_back(lines: List[str], start: int, end: int) -> int:
 
 
 def main() -> None:
-    if len(LAYERS) != 1:
-        fail("cmake/ must hold one helper directory with an All.cmake, found %d" % len(LAYERS))
     text = CONFIG.read_text() if CONFIG.exists() else ""
     lines = text.splitlines(keepends=True)
     if lines and not lines[-1].endswith("\n"):
