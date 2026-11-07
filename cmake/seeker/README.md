@@ -389,7 +389,7 @@ call it once, after the last tool.
 
 | Helper                                               | Arguments              | Does                                                                                                                                              |
 | ---------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `seeker_module(<name>)`                              | name                   | sets `LIB_NAME`, `SRC_DIR`, `INC_DIR`, `UTST_DIR`, `PTST_DIR`, `DTST_DIR`, `TST_DIR`, `README_FILE` in the caller                                 |
+| `seeker_module(<name>)`                              | name                   | sets `LIB_NAME`, `SRC_DIR`, `INC_DIR`, `UTST_DIR`, `PTST_DIR`, `DTST_DIR`, `README_FILE` in the caller                                            |
 | `seeker_add_test_subdirs([UTST] [PTST] [DTST])`      | `UTST`, `PTST`, `DTST` | adds the module's `utst/`, `ptst/`, `dtst/` directories that have a `CMakeLists.txt` (all three without arguments), in the top-level project only |
 | `seeker_standard_optins(<target>)`                   | target                 | Doxygen docs (`PROJECT_BUILD_DOCS`), UPX copy (`ENABLE_UPX`), clang-tidy on `.cu` files (`ENABLE_CLANG_TIDY`); no coverage                        |
 | `seeker_install_docs(<path> [DESTINATION <subdir>])` | path, `DESTINATION`    | installs a markdown file or directory under the doc directory (release builds, or no build type)                                                  |

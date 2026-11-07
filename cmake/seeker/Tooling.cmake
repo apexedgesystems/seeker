@@ -23,7 +23,7 @@ endif ()
 #
 # Add a <target>_docs target (part of the global docs target) that runs Doxygen
 # into ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html. SRC, TST, DOCS, TOOLS,
-# TEMPLATES and README default to src, tst, docs, tools, templates and README.md
+# TEMPLATES and README default to src, utst, docs, tools, templates and README.md
 # under the current source directory when those exist, INC to inc; EXTRA_DIRS
 # adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests.
 # The Doxyfile comes from the layer's template, Doxyfile.common.in beside this
@@ -68,8 +68,8 @@ function (seeker_add_doxygen _target)
 
   if (DOX_NO_TST)
     set(DOX_TST "")
-  elseif (NOT DOX_TST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tst")
-    set(DOX_TST "${CMAKE_CURRENT_SOURCE_DIR}/tst")
+  elseif (NOT DOX_TST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/utst")
+    set(DOX_TST "${CMAKE_CURRENT_SOURCE_DIR}/utst")
   endif ()
 
   if (NOT DOX_DOCS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/docs")

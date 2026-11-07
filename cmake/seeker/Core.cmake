@@ -156,7 +156,6 @@ endfunction ()
 #                                                 (seeker_add_ptest, run by hand)
 #   DTST_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/dtst  development tests
 #                                                 (seeker_add_devtest, run by hand)
-#   TST_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/tst   general test directory
 #   README_FILE ${CMAKE_CURRENT_SOURCE_DIR}/README.md
 #
 # seeker_add_test_subdirs() adds the test directories that exist.
@@ -173,10 +172,6 @@ function (seeker_module _name)
   )
   set(INC_DIR
       "${CMAKE_CURRENT_SOURCE_DIR}/inc"
-      PARENT_SCOPE
-  )
-  set(TST_DIR
-      "${CMAKE_CURRENT_SOURCE_DIR}/tst"
       PARENT_SCOPE
   )
   set(UTST_DIR
