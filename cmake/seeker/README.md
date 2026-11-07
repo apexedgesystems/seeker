@@ -61,7 +61,9 @@ labels and coverage.
 
 A leaf file contains only:
 
-- `include(seeker/All)` (and `seeker_module(<name>)` in a module directory),
+- `include(seeker/All)` (and `seeker_module(<name>)` in a module directory);
+  a leaf that uses one helper family only may include that family's `seeker/`
+  module instead,
 - source lists: `set(CPP_SOURCES ...)`, `set(UNIT_TEST_SOURCES ...)`,
   `set(CUDA_SOURCES ...)`, explicit file by file,
 - helper calls, including explicit opt-ins after the main call

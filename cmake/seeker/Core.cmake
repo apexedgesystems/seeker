@@ -109,7 +109,7 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # _seeker_target_exists(<helper> <target> <out_var>)
 #
-# Set <out_var> to TRUE when <target> exists and to FALSE when a factory skipped
+# Set <out_var> to TRUE when <target> exists and to FALSE when a helper skipped
 # it (_seeker_skip). Any other name fails the configure with <helper>'s name.
 # ------------------------------------------------------------------------------
 function (_seeker_target_exists _helper _target _out_var)

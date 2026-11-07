@@ -4,12 +4,11 @@ gen_helper_reference.py - Render the helper reference of the CMake guide.
 
 The helper directory is the leaf check's HELPER_DIR, the one child of cmake/
 that holds All.cmake. Section 5 of the README.md there, between its two marker
-lines, is the rendering of the
-comment block above each public helper in the directory's *.cmake files, read
-with the leaf check's reader: per helper its call form, the first paragraph of
-its description and its argument table, grouped by helper file; the rest of the
-description stays in the block. A block reads when it has the shape the helpers
-share:
+lines, is the rendering of the comment block above each public helper in the
+directory's *.cmake files, read with the leaf check's reader: per helper its
+call form, the first paragraph of its description and its argument table,
+grouped by helper file; the rest of the description stays in the block. A
+block reads when it has the shape the helpers share:
 
     # -------------------------------------------------------------------------
     # <prefix>_add_example(...)         the call form, continued on
