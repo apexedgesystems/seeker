@@ -489,8 +489,11 @@ It runs as a pre-commit hook, so `make format-check`,
 python3 tools/cmake/check_leaf_cmake.py
 ```
 
-It needs Python 3 and cmakelang (the lexer, cmake-format and
-`cmake-genparsers`), both in the development containers.
+It needs Python 3 and cmakelang with its YAML extra (PyYAML), as
+`pip install "cmakelang[YAML]"` installs them: cmakelang supplies the lexer,
+cmake-format and `cmake-genparsers`, and cmake-format and
+`tools/cmake/gen_signatures.py` read YAML through PyYAML. The development
+containers have both.
 
 ---
 
