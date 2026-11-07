@@ -439,8 +439,10 @@ cannot map fails the configure, even with coverage off. The `coverage-report`
 target writes one report per library, `html/`, `summary.txt` and `lcov.info`
 under `<build>/coverage/<library>/`, read from the library's file and every
 test executable mapped to it, so the sources each test compiles directly are
-kept. When a report cannot be produced it still writes the others and then
-fails, naming each failed library.
+kept. A report leaves out fetched dependencies (any `_deps` directory), test
+sources and `/usr/local` (`SEEKER_COVERAGE_IGNORE_REGEX`). When a report
+cannot be produced it still writes the others and then fails, naming each
+failed library.
 The coverage flags are never installed or exported.
 
 ---

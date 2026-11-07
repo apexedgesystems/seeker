@@ -14,8 +14,11 @@
 # libraries are not mapped. The coverage-report target writes one report per
 # library, html/, summary.txt and lcov.info under <output>/<library>/, read
 # from the library's file and every test executable mapped to it, so each
-# test's direct sources are kept. When a report cannot be produced the others
-# are still written and the target then fails, naming each failed library.
+# test's direct sources are kept. A report leaves out the files
+# SEEKER_COVERAGE_IGNORE_REGEX matches, by default fetched dependencies (a
+# _deps directory wherever the build directory is), test sources and
+# /usr/local. When a report cannot be produced the others are still written
+# and the target then fails, naming each failed library.
 # ==============================================================================
 
 include_guard(GLOBAL)
@@ -37,8 +40,15 @@ set(SEEKER_COVERAGE_OUTPUT_DIR
     CACHE PATH "Coverage report output directory"
 )
 
-set(SEEKER_COVERAGE_IGNORE_REGEX
+# A cache holding the earlier default, which matched build/_deps only, takes
+# the current one; a value set by hand is kept.
+if (SEEKER_COVERAGE_IGNORE_REGEX STREQUAL
     ".*/build/_deps/.*|.*_uTest.*|.*_dTest.*|.*_pTest.*|/usr/local/.*"
+)
+  unset(SEEKER_COVERAGE_IGNORE_REGEX CACHE)
+endif ()
+set(SEEKER_COVERAGE_IGNORE_REGEX
+    ".*/_deps/.*|.*_uTest.*|.*_dTest.*|.*_pTest.*|/usr/local/.*"
     CACHE STRING "Regex for files to ignore in coverage reports"
 )
 
