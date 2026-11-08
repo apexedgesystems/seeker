@@ -38,7 +38,7 @@ output/
 .circleci/
 Jenkinsfile
 
-# Documentation (built separately, but keep Doxyfile template for cmake)
+# Documentation (built separately)
 docs/*.md
 docs/*.pdf
 docs/*.docx

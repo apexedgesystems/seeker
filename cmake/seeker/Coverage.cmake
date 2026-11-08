@@ -14,8 +14,11 @@
 # libraries are not mapped. The coverage-report target writes one report per
 # library, html/, summary.txt and lcov.info under <output>/<library>/, read
 # from the library's file and every test executable mapped to it, so each
-# test's direct sources are kept. When a report cannot be produced the others
-# are still written and the target then fails, naming each failed library.
+# test's direct sources are kept. A report leaves out the files
+# SEEKER_COVERAGE_IGNORE_REGEX matches, by default fetched dependencies (a
+# _deps directory wherever the build directory is), test sources and
+# /usr/local. When a report cannot be produced the others are still written
+# and the target then fails, naming each failed library.
 # ==============================================================================
 
 include_guard(GLOBAL)
@@ -27,18 +30,49 @@ include(seeker/Core)
 
 option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 
-set(SEEKER_COVERAGE_LLVM_VERSION
-    "21"
-    CACHE STRING "LLVM tools version suffix (e.g., 21 for llvm-cov-21)"
+# The LLVM tools follow the compiler: Clang N writes the profiles that
+# llvm-profdata-N and llvm-cov-N read. A cache holding the earlier default, a
+# fixed "21" with the help string that default was written with, takes the
+# current one and drops the tool paths cached with it, so the tools are
+# searched again with the new suffix (CMake does not repeat a search whose
+# result is cached); a value set by hand, 21 included, is kept.
+set(_seeker_llvm_version "")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION MATCHES "^([0-9]+)")
+  set(_seeker_llvm_version "${CMAKE_MATCH_1}")
+endif ()
+get_property(
+  _seeker_llvm_help
+  CACHE SEEKER_COVERAGE_LLVM_VERSION
+  PROPERTY HELPSTRING
 )
+if (SEEKER_COVERAGE_LLVM_VERSION STREQUAL "21"
+    AND _seeker_llvm_help STREQUAL "LLVM tools version suffix (e.g., 21 for llvm-cov-21)"
+)
+  unset(SEEKER_COVERAGE_LLVM_VERSION CACHE)
+  unset(SEEKER_LLVM_PROFDATA CACHE)
+  unset(SEEKER_LLVM_COV CACHE)
+endif ()
+unset(_seeker_llvm_help)
+set(SEEKER_COVERAGE_LLVM_VERSION
+    "${_seeker_llvm_version}"
+    CACHE STRING "LLVM tools version suffix, N in llvm-cov-N (default: the Clang major version)"
+)
+unset(_seeker_llvm_version)
 
 set(SEEKER_COVERAGE_OUTPUT_DIR
     "${CMAKE_BINARY_DIR}/coverage"
     CACHE PATH "Coverage report output directory"
 )
 
-set(SEEKER_COVERAGE_IGNORE_REGEX
+# A cache holding the earlier default, which matched build/_deps only, takes
+# the current one; a value set by hand is kept.
+if (SEEKER_COVERAGE_IGNORE_REGEX STREQUAL
     ".*/build/_deps/.*|.*_uTest.*|.*_dTest.*|.*_pTest.*|/usr/local/.*"
+)
+  unset(SEEKER_COVERAGE_IGNORE_REGEX CACHE)
+endif ()
+set(SEEKER_COVERAGE_IGNORE_REGEX
+    ".*/_deps/.*|.*_uTest.*|.*_dTest.*|.*_pTest.*|/usr/local/.*"
     CACHE STRING "Regex for files to ignore in coverage reports"
 )
 
@@ -58,7 +92,8 @@ set_property(GLOBAL PROPERTY SEEKER_COVERAGE_MAPPINGS "")
 # seeker_coverage_init()
 #
 # With ENABLE_COVERAGE, locate llvm-profdata and llvm-cov
-# (SEEKER_COVERAGE_LLVM_VERSION), create the seeker_coverage_flags interface
+# (SEEKER_COVERAGE_LLVM_VERSION, by default the major version of the Clang
+# that compiles), create the seeker_coverage_flags interface
 # target (Clang source-based instrumentation, Debug builds) and generate the
 # coverage-report and coverage-clean targets at the end of the configure.
 # Coverage is turned off with a warning for cross, bare-metal and non-Clang

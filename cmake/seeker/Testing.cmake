@@ -13,7 +13,8 @@ include(seeker/Coverage)
 # are found in its sources (gtest_add_tests) and registered with CTest. CUDA
 # sources are compiled through seeker_cuda_sources when the CUDA toolkit is
 # found and the CUDA language enabled, and otherwise left out with their tests.
-# Skipped on bare-metal builds.
+# Skipped on bare-metal builds, and when a REQUIRES_TARGETS target does not
+# exist.
 #
 # With ENABLE_COVERAGE, the test is mapped to each library in LINK that
 # coverage maps (a shared library this project builds from C or C++ sources;
@@ -34,6 +35,8 @@ include(seeker/Coverage)
 #   CUDA             <files...>       optional, CUDA sources
 #   LINK             <targets...>     optional, linked PRIVATE with
 #                                     GTest::gtest_main and GTest::gmock
+#   REQUIRES_TARGETS <targets...>     optional, targets that must exist; linked
+#                                     PRIVATE (not mapped for coverage)
 #   LINK_OPTIONS     <options...>     optional, PRIVATE linker options
 #   INC              <dir>            optional, PRIVATE include directory
 #   LABELS           <labels...>      optional, CTest labels of every test
@@ -52,7 +55,7 @@ function (seeker_add_gtest)
   cmake_parse_arguments(
     GT "TIMING_ALL;NO_COVERAGE"
     "TARGET;INC;WORKING_DIR;RESOURCE_LOCK;COVERAGE_FOR;REQUIRES_THREADS"
-    "SOURCES;CUDA;LINK;LINK_OPTIONS;LABELS;TIMING_TESTS;TIMING_PATTERNS" ${ARGN}
+    "SOURCES;CUDA;LINK;REQUIRES_TARGETS;LINK_OPTIONS;LABELS;TIMING_TESTS;TIMING_PATTERNS" ${ARGN}
   )
   _seeker_check_arguments(seeker_add_gtest GT REQUIRED TARGET SOURCES)
   if (DEFINED GT_REQUIRES_THREADS AND NOT GT_REQUIRES_THREADS MATCHES "^[1-9][0-9]*$")
@@ -64,6 +67,11 @@ function (seeker_add_gtest)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${GT_TARGET} "bare-metal")
+    return()
+  endif ()
+  _seeker_requires_targets(_present ${GT_TARGET} ${GT_REQUIRES_TARGETS})
+  if (NOT _present)
     return()
   endif ()
 
@@ -93,7 +101,9 @@ function (seeker_add_gtest)
     endif ()
   endif ()
 
-  target_link_libraries(${GT_TARGET} PRIVATE GTest::gtest_main GTest::gmock ${GT_LINK})
+  target_link_libraries(
+    ${GT_TARGET} PRIVATE GTest::gtest_main GTest::gmock ${GT_LINK} ${GT_REQUIRES_TARGETS}
+  )
   if (GT_LINK_OPTIONS)
     target_link_options(${GT_TARGET} PRIVATE ${GT_LINK_OPTIONS})
   endif ()
@@ -260,25 +270,35 @@ endfunction ()
 # seeker_add_ptest(...)
 #
 # Performance test executable in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/ptests,
-# built but not registered with CTest: run it by hand, for example
-#   build/native-linux-debug/bin/ptests/<TARGET> --csv results.csv
+# built but not registered with CTest: run it by hand in a build where the
+# targets it names in REQUIRES_TARGETS exist, for example
+#   <build>/bin/ptests/<TARGET> --csv results.csv
 # Links GoogleTest and, when found, the gperftools profiler and tcmalloc; the
 # build RPATH reaches the library output directory. CUDA sources are compiled
-# when CUDA is active and left out otherwise. Skipped on bare-metal builds.
+# when CUDA is active and left out otherwise. Skipped on bare-metal builds, and
+# when a REQUIRES_TARGETS target does not exist (a test that measures with an
+# optional library names it there).
 #
 # Arguments:
 #   TARGET          <name>           required
 #   SOURCES         <files...>       required
 #   CUDA            <files...>       optional, CUDA sources
 #   LINK            <targets...>     optional, linked PRIVATE
+#   REQUIRES_TARGETS <targets...>    optional, targets that must exist; linked
+#                                    PRIVATE
 #   INC             <dir>            optional, PRIVATE include directory
 # ------------------------------------------------------------------------------
 function (seeker_add_ptest)
-  cmake_parse_arguments(PT "" "TARGET;INC" "SOURCES;CUDA;LINK" ${ARGN})
+  cmake_parse_arguments(PT "" "TARGET;INC" "SOURCES;CUDA;LINK;REQUIRES_TARGETS" ${ARGN})
   _seeker_check_arguments(seeker_add_ptest PT REQUIRED TARGET SOURCES)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${PT_TARGET} "bare-metal")
+    return()
+  endif ()
+  _seeker_requires_targets(_present ${PT_TARGET} ${PT_REQUIRES_TARGETS})
+  if (NOT _present)
     return()
   endif ()
 
@@ -309,7 +329,7 @@ function (seeker_add_ptest)
   endif ()
 
   # Build link list
-  set(_link ${PT_LINK})
+  set(_link ${PT_LINK} ${PT_REQUIRES_TARGETS})
 
   # gperftools (optional)
   find_library(GPERF_PROFILER_LIB NAMES profiler)
@@ -391,6 +411,7 @@ function (seeker_add_devtest)
 
   # Skip on bare-metal
   if (CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    _seeker_skip(${DT_TARGET} "bare-metal")
     return()
   endif ()
 

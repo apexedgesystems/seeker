@@ -37,19 +37,26 @@ endif ()
 # _seeker_skip. An unknown requirement fails the configure on every platform.
 #
 # Requirements:
-#   POSIX     hosted (not bare-metal) platform
-#   PTHREADS  hosted platform (POSIX threads)
+#   POSIX     hosted UNIX platform (UNIX, not bare-metal)
 #   LINUX     hosted platform with CMAKE_SYSTEM_NAME Linux
 #   CUDA      CUDA toolkit found and the CUDA language enabled
+# PTHREADS is retired: naming it fails the configure with the migration.
 # ------------------------------------------------------------------------------
 function (_seeker_platform_supports _out_var _helper _target _baremetal_ok)
   set(_missing "")
   foreach (_req IN LISTS ARGN)
-    if (_req STREQUAL "POSIX" OR _req STREQUAL "PTHREADS")
-      set(_met TRUE)
-      if (SEEKER_PLATFORM_BAREMETAL)
-        set(_met FALSE)
+    if (_req STREQUAL "POSIX")
+      set(_met FALSE)
+      if (UNIX AND NOT SEEKER_PLATFORM_BAREMETAL)
+        set(_met TRUE)
       endif ()
+    elseif (_req STREQUAL "PTHREADS")
+      message(
+        FATAL_ERROR
+          "${_helper}: PTHREADS is retired; POSIX means a hosted UNIX platform. Link "
+          "Threads::Threads through DEPS_PUBLIC, DEPS_PRIVATE or DEPS_INTERFACE on a library, "
+          "LINK on a test, tool or app."
+      )
     elseif (_req STREQUAL "LINUX")
       set(_met FALSE)
       if (NOT SEEKER_PLATFORM_BAREMETAL AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -62,7 +69,7 @@ function (_seeker_platform_supports _out_var _helper _target _baremetal_ok)
       endif ()
     else ()
       message(FATAL_ERROR "${_helper}: unknown requirement '${_req}' for '${_target}' "
-                          "(supported: POSIX PTHREADS LINUX CUDA)"
+                          "(supported: POSIX LINUX CUDA)"
       )
     endif ()
     if (NOT _met)
@@ -93,7 +100,8 @@ endfunction ()
 # include directory, dependencies, definitions and features to its consumers.
 # The target and the headers under INC are installed and exported in
 # seekerTargets unless NO_INSTALL is given. Skipped on bare-metal builds unless
-# BAREMETAL is given, and when a requirement does not hold.
+# BAREMETAL is given, when a requirement does not hold, and when a
+# REQUIRES_TARGETS target does not exist.
 #
 # Arguments:
 #   NAME            <target>           required
@@ -101,20 +109,28 @@ endfunction ()
 #   DEPS_INTERFACE  <targets...>       optional, linked INTERFACE
 #   DEFS            <defs...>          optional, INTERFACE compile definitions
 #   FEATURES        <features...>      optional, INTERFACE compile features
-#   REQUIRES        <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES        <requirements...>  optional (POSIX, LINUX, CUDA)
+#   REQUIRES_TARGETS <targets...>      optional, targets that must exist;
+#                                      checked, not linked (name them in
+#                                      DEPS_INTERFACE as well)
 #   BAREMETAL                          optional flag: also built on bare-metal
 #   NO_INSTALL                         optional flag: neither installed nor
 #                                      exported (test support, build-only)
 # ------------------------------------------------------------------------------
 function (seeker_add_interface_library)
   cmake_parse_arguments(
-    IL "BAREMETAL;NO_INSTALL" "NAME;INC" "DEPS_INTERFACE;DEFS;FEATURES;REQUIRES" ${ARGN}
+    IL "BAREMETAL;NO_INSTALL" "NAME;INC" "DEPS_INTERFACE;DEFS;FEATURES;REQUIRES;REQUIRES_TARGETS"
+    ${ARGN}
   )
   _seeker_check_arguments(seeker_add_interface_library IL REQUIRED NAME INC)
   _seeker_platform_supports(
     _supported seeker_add_interface_library ${IL_NAME} ${IL_BAREMETAL} ${IL_REQUIRES}
   )
   if (NOT _supported)
+    return()
+  endif ()
+  _seeker_requires_targets(_present ${IL_NAME} ${IL_REQUIRES_TARGETS})
+  if (NOT _present)
     return()
   endif ()
 
@@ -155,8 +171,9 @@ endfunction ()
 # SOVERSION from the project version. The library's public include path is INC
 # plus the project root (build tree) or the install include directory; the
 # target and the headers under INC are installed and exported in seekerTargets.
-# Skipped on bare-metal builds unless BAREMETAL is given, and when a
-# requirement does not hold; SHARED becomes STATIC on bare-metal.
+# Skipped on bare-metal builds unless BAREMETAL is given, when a requirement
+# does not hold, and when a REQUIRES_TARGETS target does not exist; SHARED
+# becomes STATIC on bare-metal.
 #
 # Arguments:
 #   NAME         <target>           required
@@ -165,12 +182,20 @@ endfunction ()
 #   SRC          <files...>         required
 #   DEPS_PUBLIC  <targets...>       optional, linked PUBLIC
 #   DEPS_PRIVATE <targets...>       optional, linked PRIVATE
-#   REQUIRES     <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES     <requirements...>  optional (POSIX, LINUX, CUDA)
+#   REQUIRES_TARGETS <targets...>   optional, targets that must exist; checked,
+#                                   not linked (name them in DEPS_PUBLIC or
+#                                   DEPS_PRIVATE as well)
+#   OUTPUT_NAME  <file_stem>        optional, the library file's name without
+#                                   prefix and suffix; default
+#                                   ${PROJECT_NAME}_<NAME> (NAME itself when it
+#                                   already starts with ${PROJECT_NAME}_)
 #   BAREMETAL                       optional flag: also built on bare-metal
 # ------------------------------------------------------------------------------
 function (seeker_add_library)
   cmake_parse_arguments(
-    AL "BAREMETAL" "NAME;TYPE;INC" "SRC;DEPS_PUBLIC;DEPS_PRIVATE;REQUIRES" ${ARGN}
+    AL "BAREMETAL" "NAME;TYPE;INC;OUTPUT_NAME"
+    "SRC;DEPS_PUBLIC;DEPS_PRIVATE;REQUIRES;REQUIRES_TARGETS" ${ARGN}
   )
   _seeker_check_arguments(
     seeker_add_library
@@ -188,6 +213,10 @@ function (seeker_add_library)
   if (NOT _supported)
     return()
   endif ()
+  _seeker_requires_targets(_present ${AL_NAME} ${AL_REQUIRES_TARGETS})
+  if (NOT _present)
+    return()
+  endif ()
 
   # Bare-metal: force STATIC (shared libraries not supported on freestanding)
   set(_type ${AL_TYPE})
@@ -197,6 +226,15 @@ function (seeker_add_library)
 
   add_library(${AL_NAME} ${_type})
   add_library(seeker::${AL_NAME} ALIAS ${AL_NAME})
+
+  # Library file name: the project prefix once, whatever the target is called
+  if (NOT DEFINED AL_OUTPUT_NAME)
+    set(AL_OUTPUT_NAME "${AL_NAME}")
+    if (NOT AL_NAME MATCHES "^${PROJECT_NAME}_")
+      set(AL_OUTPUT_NAME "${PROJECT_NAME}_${AL_NAME}")
+    endif ()
+  endif ()
+  set_target_properties(${AL_NAME} PROPERTIES OUTPUT_NAME "${AL_OUTPUT_NAME}")
 
   if (_type STREQUAL "SHARED")
     set_target_properties(
@@ -314,7 +352,8 @@ endfunction ()
 # Application executable. Outputs to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}, installs
 # to the binary directory unless NO_INSTALL, and gets a UPX copy (ENABLE_UPX,
 # release builds) unless NO_UPX. Skipped on bare-metal builds unless BAREMETAL
-# is given, and when a requirement does not hold.
+# is given, when a requirement does not hold, and when a REQUIRES_TARGETS
+# target does not exist.
 #
 # Arguments:
 #   NAME        <target>           required
@@ -323,18 +362,25 @@ endfunction ()
 #   INC         <dirs...>          optional, PRIVATE include directories
 #   DEFS        <defs...>          optional, PRIVATE compile definitions
 #   FEATURES    <features...>      optional, PRIVATE compile features
-#   REQUIRES    <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES    <requirements...>  optional (POSIX, LINUX, CUDA)
+#   REQUIRES_TARGETS <targets...>  optional, targets that must exist; linked
+#                                  PRIVATE
 #   BAREMETAL                      optional flag: also built on bare-metal
 #   NO_INSTALL                     optional flag
 #   NO_UPX                         optional flag: no UPX copy
 # ------------------------------------------------------------------------------
 function (seeker_add_app)
   cmake_parse_arguments(
-    APP "NO_INSTALL;NO_UPX;BAREMETAL" "NAME" "SRC;LINK;INC;DEFS;FEATURES;REQUIRES" ${ARGN}
+    APP "NO_INSTALL;NO_UPX;BAREMETAL" "NAME" "SRC;LINK;INC;DEFS;FEATURES;REQUIRES;REQUIRES_TARGETS"
+    ${ARGN}
   )
   _seeker_check_arguments(seeker_add_app APP REQUIRED NAME SRC)
   _seeker_platform_supports(_supported seeker_add_app ${APP_NAME} ${APP_BAREMETAL} ${APP_REQUIRES})
   if (NOT _supported)
+    return()
+  endif ()
+  _seeker_requires_targets(_present ${APP_NAME} ${APP_REQUIRES_TARGETS})
+  if (NOT _present)
     return()
   endif ()
 
@@ -349,8 +395,9 @@ function (seeker_add_app)
       "APP"
   )
 
-  if (APP_LINK)
-    list(APPEND _args LINK ${APP_LINK})
+  set(_link ${APP_LINK} ${APP_REQUIRES_TARGETS})
+  if (_link)
+    list(APPEND _args LINK ${_link})
   endif ()
   if (APP_INC)
     list(APPEND _args INC ${APP_INC})
@@ -379,8 +426,8 @@ endfunction ()
 # unless NO_INSTALL, and joins the ${PROJECT_NAME}_cpp_tools aggregate target
 # (seeker_finalize_cpp_tools). Sources compile in the language of their
 # extension (.cu as CUDA). Skipped on bare-metal builds unless BAREMETAL is
-# given, and when a requirement does not hold: a CUDA tool declares
-# REQUIRES CUDA.
+# given, when a requirement does not hold (a CUDA tool declares
+# REQUIRES CUDA), and when a REQUIRES_TARGETS target does not exist.
 #
 # Arguments:
 #   NAME        <target>           required
@@ -389,19 +436,26 @@ endfunction ()
 #   INC         <dirs...>          optional, PRIVATE include directories
 #   DEFS        <defs...>          optional, PRIVATE compile definitions
 #   FEATURES    <features...>      optional, PRIVATE compile features
-#   REQUIRES    <requirements...>  optional (POSIX, PTHREADS, LINUX, CUDA)
+#   REQUIRES    <requirements...>  optional (POSIX, LINUX, CUDA)
+#   REQUIRES_TARGETS <targets...>  optional, targets that must exist; linked
+#                                  PRIVATE
 #   BAREMETAL                      optional flag: also built on bare-metal
 #   NO_INSTALL                     optional flag
 # ------------------------------------------------------------------------------
 function (seeker_add_tool)
   cmake_parse_arguments(
-    TOOL "NO_INSTALL;BAREMETAL" "NAME" "SRC;LINK;INC;DEFS;FEATURES;REQUIRES" ${ARGN}
+    TOOL "NO_INSTALL;BAREMETAL" "NAME" "SRC;LINK;INC;DEFS;FEATURES;REQUIRES;REQUIRES_TARGETS"
+    ${ARGN}
   )
   _seeker_check_arguments(seeker_add_tool TOOL REQUIRED NAME SRC)
   _seeker_platform_supports(
     _supported seeker_add_tool ${TOOL_NAME} ${TOOL_BAREMETAL} ${TOOL_REQUIRES}
   )
   if (NOT _supported)
+    return()
+  endif ()
+  _seeker_requires_targets(_present ${TOOL_NAME} ${TOOL_REQUIRES_TARGETS})
+  if (NOT _present)
     return()
   endif ()
 
@@ -416,8 +470,9 @@ function (seeker_add_tool)
       "TOOL"
   )
 
-  if (TOOL_LINK)
-    list(APPEND _args LINK ${TOOL_LINK})
+  set(_link ${TOOL_LINK} ${TOOL_REQUIRES_TARGETS})
+  if (_link)
+    list(APPEND _args LINK ${_link})
   endif ()
   if (TOOL_INC)
     list(APPEND _args INC ${TOOL_INC})

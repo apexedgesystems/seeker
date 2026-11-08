@@ -3,6 +3,7 @@
 # ==============================================================================
 
 include_guard(GLOBAL)
+include(seeker/Core)
 
 # ------------------------------------------------------------------------------
 # Internal helpers
@@ -186,11 +187,36 @@ function (_seeker_cuda_target_libdir _out_libdir _out_root)
 endfunction ()
 
 # ------------------------------------------------------------------------------
+# _seeker_print_skipped_targets()
+#
+# Print a Skipped targets block, one line per target _seeker_skip recorded,
+# with its reason; nothing when no target was skipped.
+# ------------------------------------------------------------------------------
+function (_seeker_print_skipped_targets)
+  get_property(_skipped GLOBAL PROPERTY SEEKER_SKIPPED_TARGETS)
+  if (NOT _skipped)
+    return()
+  endif ()
+  list(REMOVE_DUPLICATES _skipped)
+  message(STATUS "-------------------------------------------------------------------------------")
+  message(STATUS "Skipped targets")
+  foreach (_target IN LISTS _skipped)
+    get_property(_reason GLOBAL PROPERTY SEEKER_SKIP_REASON_${_target})
+    message(STATUS "  ${_target} : ${_reason}")
+  endforeach ()
+  message(STATUS "-------------------------------------------------------------------------------")
+endfunction ()
+
+# ------------------------------------------------------------------------------
 # seeker_print_config_summary()
 #
-# Emit configuration banner showing build settings, compilers, and CUDA status.
+# Emit configuration banner showing build settings, compilers, and CUDA status,
+# and at the end of the caller's directory, once the target helpers have run,
+# the Skipped targets block (_seeker_print_skipped_targets). Takes no
+# arguments; an argument fails the configure.
 # ------------------------------------------------------------------------------
 function (seeker_print_config_summary)
+  _seeker_reject_extra_arguments(seeker_print_config_summary ${ARGN})
   # Build type
   if (CMAKE_CONFIGURATION_TYPES)
     _seeker_join(CMAKE_CONFIGURATION_TYPES ", " _cfgs)
@@ -470,4 +496,7 @@ function (seeker_print_config_summary)
   endif ()
 
   message(STATUS "-------------------------------------------------------------------------------")
+
+  # The target helpers run after the banner; list their skips at the end
+  cmake_language(DEFER CALL _seeker_print_skipped_targets)
 endfunction ()

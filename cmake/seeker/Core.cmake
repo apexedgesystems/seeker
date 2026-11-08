@@ -52,24 +52,64 @@ endfunction ()
 # ------------------------------------------------------------------------------
 # _seeker_skip(<target> <reason>)
 #
-# Record that a target factory did not create <target> on this platform (a
-# bare-metal build or a requirement that does not hold). The helpers that check
-# a target name with _seeker_target_exists (seeker_standard_optins,
-# seeker_nvml_enable, seeker_clang_tidy_cuda, the CUDA sidecar's CORE) skip a
-# recorded name and fail on any other name that is not a target. Prints the
-# reason when SEEKER_TARGETS_VERBOSE is ON.
+# Record that a target helper did not create <target> on this configure (a
+# bare-metal build, a requirement that does not hold, a missing
+# REQUIRES_TARGETS target) and why. The helpers that check a target name with
+# _seeker_target_exists (seeker_standard_optins, seeker_nvml_enable,
+# seeker_clang_tidy_cuda, the CUDA sidecar's CORE) skip a recorded name and
+# fail on any other name that is not a target. seeker_print_config_summary
+# lists the records once; each skip is also printed where it happens when
+# SEEKER_TARGETS_VERBOSE is ON.
 # ------------------------------------------------------------------------------
 function (_seeker_skip _target _reason)
   set_property(GLOBAL APPEND PROPERTY SEEKER_SKIPPED_TARGETS "${_target}")
+  set_property(GLOBAL PROPERTY SEEKER_SKIP_REASON_${_target} "${_reason}")
   if (SEEKER_TARGETS_VERBOSE)
     message(STATUS "[seeker] SKIP ${_target} (${_reason})")
   endif ()
 endfunction ()
 
 # ------------------------------------------------------------------------------
+# _seeker_requires_targets(<out_var> <target> [<required>...])
+#
+# Set <out_var> to TRUE when every <required> target exists. Otherwise record
+# with _seeker_skip that <target> is skipped for the missing ones and set
+# <out_var> to FALSE. The helpers that take REQUIRES_TARGETS call it after
+# their platform checks. A missing target with a hint, the GLOBAL property
+# SEEKER_TARGET_HINT_<required> that the code owning the option providing it
+# sets, adds "; enabled by <hint>" to the reason; an identical hint once.
+# ------------------------------------------------------------------------------
+function (_seeker_requires_targets _out_var _target)
+  set(_missing "")
+  set(_hints "")
+  set(_seen "")
+  foreach (_required IN LISTS ARGN)
+    if (NOT TARGET "${_required}")
+      list(APPEND _missing "${_required}")
+      get_property(_hint GLOBAL PROPERTY SEEKER_TARGET_HINT_${_required})
+      if (NOT "${_hint}" STREQUAL "" AND NOT "${_hint}" IN_LIST _seen)
+        list(APPEND _seen "${_hint}")
+        string(APPEND _hints "; enabled by ${_hint}")
+      endif ()
+    endif ()
+  endforeach ()
+
+  set(_present TRUE)
+  if (_missing)
+    list(JOIN _missing ", " _missing_str)
+    _seeker_skip(${_target} "missing targets: ${_missing_str}${_hints}")
+    set(_present FALSE)
+  endif ()
+  set(${_out_var}
+      ${_present}
+      PARENT_SCOPE
+  )
+endfunction ()
+
+# ------------------------------------------------------------------------------
 # _seeker_target_exists(<helper> <target> <out_var>)
 #
-# Set <out_var> to TRUE when <target> exists and to FALSE when a factory skipped
+# Set <out_var> to TRUE when <target> exists and to FALSE when a helper skipped
 # it (_seeker_skip). Any other name fails the configure with <helper>'s name.
 # ------------------------------------------------------------------------------
 function (_seeker_target_exists _helper _target _out_var)
@@ -116,7 +156,6 @@ endfunction ()
 #                                                 (seeker_add_ptest, run by hand)
 #   DTST_DIR    ${CMAKE_CURRENT_SOURCE_DIR}/dtst  development tests
 #                                                 (seeker_add_devtest, run by hand)
-#   TST_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/tst   general test directory
 #   README_FILE ${CMAKE_CURRENT_SOURCE_DIR}/README.md
 #
 # seeker_add_test_subdirs() adds the test directories that exist.
@@ -133,10 +172,6 @@ function (seeker_module _name)
   )
   set(INC_DIR
       "${CMAKE_CURRENT_SOURCE_DIR}/inc"
-      PARENT_SCOPE
-  )
-  set(TST_DIR
-      "${CMAKE_CURRENT_SOURCE_DIR}/tst"
       PARENT_SCOPE
   )
   set(UTST_DIR
@@ -244,7 +279,7 @@ endfunction ()
 #     ENABLE_CLANG_TIDY)
 #
 # Coverage is not an opt-in: seeker_add_gtest instruments the compiled
-# libraries a test links. A target a factory skipped on this platform is
+# libraries a test links. A target a helper skipped (_seeker_skip) is
 # ignored; any other name that is not a target fails the configure.
 # ------------------------------------------------------------------------------
 function (seeker_standard_optins _target)

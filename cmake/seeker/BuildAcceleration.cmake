@@ -10,7 +10,6 @@ include_guard(GLOBAL)
 #   - ccache/sccache for compiler caching
 #   - mold/lld for faster linking
 #   - Split DWARF for faster debug builds
-#   - Unity build support hints
 #
 # All features auto-detect and are non-fatal if tools are missing.
 # ==============================================================================
@@ -20,6 +19,17 @@ include_guard(GLOBAL)
 # ------------------------------------------------------------------------------
 option(SEEKER_USE_CCACHE "Use ccache/sccache if available" ON)
 
+# The launchers are normal variables set on every configure, so the option
+# takes effect in an existing build directory; a ccache or sccache launcher an
+# earlier configure cached is removed. While the option is ON, the ccache or
+# sccache it finds replaces a launcher given by hand with
+# -DCMAKE_<LANG>_COMPILER_LAUNCHER; turn the option OFF to keep another one.
+foreach (_lang IN ITEMS C CXX CUDA)
+  if ("$CACHE{CMAKE_${_lang}_COMPILER_LAUNCHER}" MATCHES "(^|/)s?ccache$")
+    unset(CMAKE_${_lang}_COMPILER_LAUNCHER CACHE)
+  endif ()
+endforeach ()
+
 if (SEEKER_USE_CCACHE)
   # Prefer sccache (Rust-based, better for distributed builds), fall back to ccache
   find_program(_CCACHE_PROGRAM NAMES sccache ccache)
@@ -28,22 +38,13 @@ if (SEEKER_USE_CCACHE)
     # Determine which one we found
     get_filename_component(_CCACHE_NAME "${_CCACHE_PROGRAM}" NAME)
 
-    set(CMAKE_C_COMPILER_LAUNCHER
-        "${_CCACHE_PROGRAM}"
-        CACHE STRING ""
-    )
-    set(CMAKE_CXX_COMPILER_LAUNCHER
-        "${_CCACHE_PROGRAM}"
-        CACHE STRING ""
-    )
+    set(CMAKE_C_COMPILER_LAUNCHER "${_CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${_CCACHE_PROGRAM}")
 
     # CUDA support: ccache 4.4+, sccache 0.2.14+
     # Check if nvcc wrapper works (some versions have issues)
     if (CMAKE_CUDA_COMPILER)
-      set(CMAKE_CUDA_COMPILER_LAUNCHER
-          "${_CCACHE_PROGRAM}"
-          CACHE STRING ""
-      )
+      set(CMAKE_CUDA_COMPILER_LAUNCHER "${_CCACHE_PROGRAM}")
     endif ()
 
     message(STATUS "Compiler cache: ${_CCACHE_NAME} (${_CCACHE_PROGRAM})")

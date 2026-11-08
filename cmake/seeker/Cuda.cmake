@@ -158,14 +158,47 @@ function (_seeker_cuda_target_scope _target _out_scope)
   endif ()
 endfunction ()
 
+# Helper: add the directory of NVML_LIBRARY to a target's build and install
+# RPATH; not for an INTERFACE target, and not for a stub (a library whose real
+# path is in a stubs directory), which is for linking only
+function (_seeker_nvml_rpath _target)
+  get_target_property(_tgt_type "${_target}" TYPE)
+  get_filename_component(_nvml_real "${NVML_LIBRARY}" REALPATH)
+  get_filename_component(_nvml_real_dir "${_nvml_real}" DIRECTORY)
+  get_filename_component(_nvml_real_dir_name "${_nvml_real_dir}" NAME)
+  if (NOT UNIX
+      OR APPLE
+      OR _tgt_type STREQUAL "INTERFACE_LIBRARY"
+      OR _nvml_real_dir_name STREQUAL "stubs"
+  )
+    return()
+  endif ()
+
+  get_filename_component(_nvml_dir "${NVML_LIBRARY}" DIRECTORY)
+  set_property(
+    TARGET ${_target}
+    APPEND
+    PROPERTY BUILD_RPATH "${_nvml_dir}"
+  )
+  set_property(
+    TARGET ${_target}
+    APPEND
+    PROPERTY INSTALL_RPATH "${_nvml_dir}"
+  )
+endfunction ()
+
 # ------------------------------------------------------------------------------
 # seeker_nvml_enable(<target>)
 #
 # Enable NVML usage when libnvidia-ml and nvml.h are available: links the
-# library, adds its include directory and RPATH, and defines
-# COMPAT_NVML_AVAILABLE=1; defines COMPAT_NVML_AVAILABLE=0 when NVML is missing
-# and on bare-metal builds. PUBLIC (INTERFACE for an INTERFACE target). A target
-# a factory skipped on this platform is ignored; any other name that is not a
+# library, adds its include directory and defines COMPAT_NVML_AVAILABLE=1;
+# defines COMPAT_NVML_AVAILABLE=0 when NVML is missing and on bare-metal
+# builds. PUBLIC (INTERFACE for an INTERFACE target). The search runs once and
+# is cached, and every call that links the library adds its directory to the
+# BUILD_RPATH and INSTALL_RPATH of a target that is not INTERFACE, unless the
+# library is a stub (its real path is in a stubs directory): a stub is for
+# linking only, and the driver's library is found at run time. A target a
+# helper skipped (_seeker_skip) is ignored; any other name that is not a
 # target fails the configure.
 #
 # Search priority:
@@ -195,6 +228,7 @@ function (seeker_nvml_enable _target)
       target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=1)
       target_include_directories(${_target} ${_scope} "${NVML_INCLUDE_DIR}")
       target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
+      _seeker_nvml_rpath(${_target})
     else ()
       target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=0)
     endif ()
@@ -243,24 +277,7 @@ function (seeker_nvml_enable _target)
     target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=1)
     target_include_directories(${_target} ${_scope} "${NVML_INCLUDE_DIR}")
     target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
-
-    # RPATH handling only for non-INTERFACE targets
-    get_target_property(_tgt_type "${_target}" TYPE)
-    if (NOT _tgt_type STREQUAL "INTERFACE_LIBRARY")
-      get_filename_component(_nvml_dir "${NVML_LIBRARY}" DIRECTORY)
-      if (UNIX AND NOT APPLE)
-        set_property(
-          TARGET ${_target}
-          APPEND
-          PROPERTY BUILD_RPATH "${_nvml_dir}"
-        )
-        set_property(
-          TARGET ${_target}
-          APPEND
-          PROPERTY INSTALL_RPATH "${_nvml_dir}"
-        )
-      endif ()
-    endif ()
+    _seeker_nvml_rpath(${_target})
   else ()
     message(STATUS "NVML not found - building without NVML (set NVML_ROOT if installed)")
     target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=0)
