@@ -38,11 +38,10 @@ seeker_add_library(
 ```
 
 That builds `libseeker_example.so` with the alias `seeker::example`;
-[section 9](#9-this-project) gives this project's module names. Add
-`add_subdirectory(example)` to `src/CMakeLists.txt`, beside the others, and
-end the file with
-`seeker_add_test_subdirs()` when the module gets a `utst/` directory. Then run
-the check, which the format gate also runs:
+[section 9](#9-this-project) gives this project's module names. End the module
+file above with `seeker_add_test_subdirs()` when the module gets a `utst/`
+directory, and add `add_subdirectory(example)` to `src/CMakeLists.txt`, beside
+the others. Then run the check, which the format gate also runs:
 
 ```bash
 python3 tools/cmake/check_leaf_cmake.py
@@ -90,7 +89,7 @@ Each target shape has a model file: a leaf file in the tree to copy, with the
 section dividers and the complete source lists. [Section 9](#9-this-project)
 lists this project's model files and quotes the library and test models;
 [section 4](#4-adding-a-target) gives the shape of a target the tree does not
-have yet.
+have.
 
 ---
 
