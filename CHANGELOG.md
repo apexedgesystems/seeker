@@ -93,7 +93,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   names the optional targets it needs and is skipped, and listed once in the
   configure summary, when one is absent; coverage leaves fetched dependencies
   out; the ccache launcher follows its option; every library linking NVML
-  carries the NVML RPATH ([#10])
+  carries the NVML RPATH, and an NVML stub's directory reaches no run-time
+  path ([#10])
 
 ### Fixed
 

@@ -358,12 +358,16 @@ Enable `NVML` usage when libnvidia-ml and `nvml.h` are available: links the
 library, adds its include directory and defines `COMPAT_NVML_AVAILABLE=1`;
 defines `COMPAT_NVML_AVAILABLE=0` when `NVML` is missing and on bare-metal
 builds. `PUBLIC` (`INTERFACE` for an `INTERFACE` target). The search runs once and
-is cached, and every call that links the library adds its directory to the
-`BUILD_RPATH` and `INSTALL_RPATH` of a target that is not `INTERFACE`, unless the
-library is a stub (its real path is in a stubs directory): a stub is for
-linking only, and the driver's library is found at run time. A target a
-helper skipped (`_seeker_skip`) is ignored; any other name that is not a
-target fails the configure.
+is cached, and every call links the library the same way. A library whose
+real path is in a stubs directory is a stub, for linking only, and the
+driver's library is found at run time: where `UNIX` is set and `APPLE` is not,
+it is linked by file name (`-l:<file>`) with its directory given to the linker
+as `-L`, so neither the build-tree nor the installed `RPATH` of a binary that
+links it, directly or through the target, names that directory. Any other
+library is linked by its path, and its directory is added to the `BUILD_RPATH`
+and `INSTALL_RPATH` of a target that is not `INTERFACE`. A target a helper
+skipped (`_seeker_skip`) is ignored; any other name that is not a target fails
+the configure.
 
 #### `seeker_cupti_enable`
 
