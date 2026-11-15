@@ -13,8 +13,9 @@ original, section for section, before the file is written; a difference
 anywhere but parse.additional_commands, or a form the script does not edit
 (no block mapping at the root, a flow-style parse section, parse or
 additional_commands given twice, additional_commands outside parse), stops it
-with nothing written, as do a configuration that is not valid YAML and a
-cmake-genparsers that is missing or fails, each with a one-line message. The
+with nothing written, as do a configuration that is not valid YAML or that
+cmake-format's loader cannot construct (an unknown tag), and a cmake-genparsers
+that is missing or fails, each with a one-line message. The
 leaf check fails when the signatures drift from the helpers; run this after
 changing a helper's arguments.
 """
@@ -152,7 +153,13 @@ def main() -> None:
         new_lines = lines[:start] + body + lines[end:]
 
     new_text = "".join(new_lines)
-    expected = yaml.safe_load(text) if text.strip() else None
+    try:
+        expected = yaml.safe_load(text) if text.strip() else None
+    except yaml.YAMLError as error:
+        fail(
+            "%s cannot be loaded as cmake-format loads it (%s)"
+            % (CONFIG.name, str(error).splitlines()[0])
+        )
     expected = dict(expected or {})
     expected[SECTION] = dict(expected.get(SECTION) or {})
     expected[SECTION][KEY] = block
