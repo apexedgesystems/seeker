@@ -2,10 +2,15 @@
 """
 check_leaf_cmake.py - Keep leaf CMake files declarative.
 
-Leaf files are the CMakeLists.txt and *.cmake files under src/ and tools/.
-They declare sources, dependencies and options through the project helpers in
-cmake/seeker/, which construct the targets. The check prints each leaf file's
-commands and fails when a leaf file:
+Leaf files are the CMakeLists.txt and *.cmake files under src/ and tools/
+(LEAF_DIRS), except inside a tool cache: a .git, .venv or __pycache__
+directory, or a target/ directory beside a Cargo.toml (CACHE_DIRS). They
+declare sources, dependencies and options through the project helpers in the
+helper directory, which construct the targets. The helper directory
+(HELPER_DIR) is the one child of cmake/ that holds All.cmake; without one, or
+with more than one, the check stops with a one-line message, and so do the two
+generators, which take HELPER_DIR from this module. The check prints each leaf
+file's commands and fails when a leaf file:
 
   - calls a command that constructs or changes a target or the build settings
     outside the helpers (add_library, add_executable, target_*, and the
@@ -20,12 +25,14 @@ commands and fails when a leaf file:
     does not support; write the argument in double quotes instead.
 
 It also fails when the helper signatures in .cmake-format.yaml differ from the
-output of cmake-genparsers for cmake/seeker/*.cmake, or when a helper's comment
-block does not name one of the keywords it parses. Leaf files are read through
-the lexer of cmakelang, the package that provides cmake-format and
-cmake-genparsers, so comments, quoted and bracket arguments are not commands; a
-file its tokens do not read as commands (an unterminated bracket argument, for
-example) fails with its line. Requires cmakelang.
+output of cmake-genparsers for the helper files, and when the helper reference
+in the helper directory's README.md is not what gen_helper_reference.py renders
+from the comment blocks, which includes argument rows that name exactly the
+keywords each helper parses. Leaf files are read through the lexer of cmakelang,
+the package that provides cmake-format and cmake-genparsers, so comments,
+quoted and bracket arguments are not commands; a file its tokens do not read as
+commands (an unterminated bracket argument, for example) fails with its line.
+Requires cmakelang.
 
 Usage:
     python3 tools/cmake/check_leaf_cmake.py [--root DIR]
@@ -33,6 +40,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -48,9 +56,30 @@ except ImportError:
 
 # =============================== Configuration ================================
 
+ROOT = Path(__file__).resolve().parents[2]
+# The native libraries under src/ and the tool trees under tools/.
 LEAF_DIRS = ("src", "tools")
-HELPER_DIR = Path("cmake") / "seeker"
+# Tool caches the walk does not enter; a target/ directory is one only beside a
+# Cargo.toml.
+CACHE_DIRS = (".git", ".venv", "__pycache__")
 FORMAT_CONFIG = Path(".cmake-format.yaml")
+
+
+def _helper_dir(root: Path) -> Path:
+    """The helper directory relative to root: the one child of cmake/ that holds
+    All.cmake. Stops the check with a one-line message when there is none or
+    more than one."""
+    found = sorted(path.parent.relative_to(root) for path in root.glob("cmake/*/All.cmake"))
+    if len(found) != 1:
+        names = " ".join(str(path) for path in found) or "none"
+        sys.exit(
+            "check_leaf_cmake: cmake/ must hold exactly one helper directory with an "
+            "All.cmake, found %s" % names
+        )
+    return found[0]
+
+
+HELPER_DIR = _helper_dir(ROOT)
 
 # Commands that construct or change targets or directory build settings: in a
 # leaf file each one bypasses a helper that should own it.
@@ -199,13 +228,22 @@ def commands(text: str) -> List[Command]:
 
 
 def leaf_files(root: Path) -> List[Path]:
-    """Every CMakeLists.txt and *.cmake file under the leaf directories."""
+    """Every CMakeLists.txt and *.cmake file under the leaf directories, except
+    inside a tool cache (CACHE_DIRS, or a target/ directory beside a
+    Cargo.toml)."""
     files: List[Path] = []
     for top in LEAF_DIRS:
-        base = root / top
-        if base.is_dir():
-            files += base.rglob("CMakeLists.txt")
-            files += base.rglob("*.cmake")
+        for current, dirs, names in os.walk(root / top):
+            here = Path(current)
+            dirs[:] = [
+                name
+                for name in dirs
+                if name not in CACHE_DIRS
+                and not (name == "target" and (here / "Cargo.toml").is_file())
+            ]
+            files += [
+                here / name for name in names if name == "CMakeLists.txt" or name.endswith(".cmake")
+            ]
     return sorted(set(files))
 
 
@@ -227,14 +265,11 @@ def check_leaf(path: Path, rel: str) -> Tuple[List[str], List[str]]:
                 "seeker_* call that creates the target an argument for it" % where
             )
         elif INTERNAL_HELPER.match(lowered):
-            violations.append(
-                "%s: internal helper; call the public seeker_* helper" % where
-            )
+            violations.append("%s: internal helper; call the public seeker_* helper" % where)
         elif lowered == "include" and not (args and HELPER_MODULE.match(args[0])):
             target = args[0] if args else ""
             violations.append(
-                "%s(%s): leaf files include only seeker/ helper modules"
-                % (where, target)
+                "%s(%s): leaf files include only seeker/ helper modules" % (where, target)
             )
     summary = [name if n == 1 else "%s(%d)" % (name, n) for name, n in counts.items()]
     return summary, violations
@@ -257,9 +292,7 @@ def _run(args: List[str], root: Path) -> str:
 
 def generated_signatures(root: Path) -> Dict[str, dict]:
     """cmake-genparsers' description of every public helper's arguments."""
-    modules = [
-        str(p.relative_to(root)) for p in sorted((root / HELPER_DIR).glob("*.cmake"))
-    ]
+    modules = [str(p.relative_to(root)) for p in sorted((root / HELPER_DIR).glob("*.cmake"))]
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "signatures.json"
         _run(["cmake-genparsers", "-f", "json", "-o", str(out)] + modules, root)
@@ -268,15 +301,15 @@ def generated_signatures(root: Path) -> Dict[str, dict]:
 
 def configured_signatures(root: Path) -> Dict[str, dict]:
     """The helper signatures the formatter configuration carries."""
-    dumped = _run(
-        ["cmake-format", "-c", str(FORMAT_CONFIG), "--dump-config", "json"], root
-    )
+    dumped = _run(["cmake-format", "-c", str(FORMAT_CONFIG), "--dump-config", "json"], root)
     return json.loads(dumped).get("parse", {}).get("additional_commands", {})
 
 
-def comment_blocks(root: Path) -> Dict[str, str]:
-    """The comment block directly above each function definition in the helpers."""
-    blocks: Dict[str, str] = {}
+def helper_blocks(root: Path) -> List[Tuple[Path, str, str]]:
+    """(module, function, comment block) for each function definition in the
+    helpers, in file order and then definition order; the block is the run of
+    comment lines directly above the definition."""
+    found: List[Tuple[Path, str, str]] = []
     for module in sorted((root / HELPER_DIR).glob("*.cmake")):
         lines = module.read_text().splitlines()
         for index, line in enumerate(lines):
@@ -286,52 +319,53 @@ def comment_blocks(root: Path) -> Dict[str, str]:
             start = index
             while start > 0 and lines[start - 1].lstrip().startswith("#"):
                 start -= 1
-            blocks[match.group(1)] = "\n".join(lines[start:index])
-    return blocks
+            found.append((module, match.group(1), "\n".join(lines[start:index])))
+    return found
 
 
-def check_helpers(root: Path) -> Tuple[List[str], List[str]]:
+def check_helpers(root: Path, generated: Dict[str, dict]) -> Tuple[List[str], List[str]]:
     """Return the helper check summary and its violations; a signature mismatch
     ends with the command that regenerates the signatures."""
-    generated = generated_signatures(root)
     configured = configured_signatures(root)
     violations: List[str] = []
     for name in sorted(set(generated) | set(configured)):
         if name not in configured:
             violations.append("%s: %s has no signature in it" % (FORMAT_CONFIG, name))
         elif name not in generated:
-            violations.append(
-                "%s: %s is not a helper in %s" % (FORMAT_CONFIG, name, HELPER_DIR)
-            )
+            violations.append("%s: %s is not a helper in %s" % (FORMAT_CONFIG, name, HELPER_DIR))
         elif generated[name] != configured[name]:
             violations.append(
-                "%s: the signature of %s differs from the helper"
-                % (FORMAT_CONFIG, name)
+                "%s: the signature of %s differs from the helper" % (FORMAT_CONFIG, name)
             )
     if violations:
-        violations.append(
-            "regenerate with: cmake-genparsers -f yaml %s/*.cmake (under "
-            "parse.additional_commands)" % HELPER_DIR
-        )
-
-    blocks = comment_blocks(root)
-    for name, spec in sorted(generated.items()):
-        keywords = list(spec.get("pargs", {}).get("flags", [])) + list(
-            spec.get("kwargs", {})
-        )
-        block = blocks.get(name, "")
-        for keyword in keywords:
-            if not re.search(r"\b%s\b" % re.escape(keyword), block):
-                violations.append(
-                    "%s: the comment block of %s does not name %s"
-                    % (HELPER_DIR, name, keyword)
-                )
+        violations.append("regenerate with: python3 tools/cmake/gen_signatures.py")
     summary = [
         "helper signatures: %s matches cmake-genparsers for %d helpers"
-        % (FORMAT_CONFIG, len(generated)),
-        "helper comments: every keyword named for %d helpers" % len(generated),
+        % (FORMAT_CONFIG, len(generated))
     ]
     return summary, violations
+
+
+def check_reference(root: Path, generated: Dict[str, dict]) -> Tuple[List[str], List[str]]:
+    """Return the helper reference summary and its violations: the guide's
+    section between the reference markers is the rendering of the helpers'
+    comment blocks."""
+    # Imported here: the generator reads the blocks through this module.
+    import gen_helper_reference as reference
+
+    try:
+        guide = reference.guide(root)
+        rendered = reference.render(root, generated)
+        current = reference.section(guide.read_text())
+    except reference.BlockError as error:
+        return [], [str(error)]
+    if current != rendered:
+        return [], [
+            "%s: the helper reference differs from the helpers' comment blocks; regenerate "
+            "with: python3 tools/cmake/gen_helper_reference.py" % guide.relative_to(root)
+        ]
+    summary = "helper reference: %s renders the comment blocks of %d helpers"
+    return [summary % (guide.relative_to(root), len(generated))], []
 
 
 # ================================== Main CLI ==================================
@@ -342,8 +376,8 @@ def main() -> None:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path(__file__).resolve().parents[2],
-        help="repository root (default: the checkout containing this script)",
+        default=ROOT,
+        help="root of a copy of this repository (default: the checkout containing this script)",
     )
     root = parser.parse_args().root.resolve()
 
@@ -356,7 +390,11 @@ def main() -> None:
         print("  %s: %s" % (rel, " ".join(summary)))
         leaf_violations += found
 
-    helper_summary, helper_violations = check_helpers(root)
+    generated = generated_signatures(root)
+    helper_summary, helper_violations = check_helpers(root, generated)
+    reference_summary, reference_violations = check_reference(root, generated)
+    helper_summary += reference_summary
+    helper_violations += reference_violations
 
     for line in leaf_violations + helper_violations:
         print(line)

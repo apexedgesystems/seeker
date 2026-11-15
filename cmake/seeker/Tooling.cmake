@@ -22,10 +22,13 @@ endif ()
 #                     [HEADERS_ONLY] [NO_TST])
 #
 # Add a <target>_docs target (part of the global docs target) that runs Doxygen
-# into ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html. SRC, TST, DOCS, TOOLS,
-# TEMPLATES and README default to src, tst, docs, tools, templates and README.md
-# under the current source directory when those exist, INC to inc; EXTRA_DIRS
-# adds directories, HEADERS_ONLY leaves out the sources and NO_TST the tests. A
+# with the output directory ${CMAKE_BINARY_DIR}/docs/lib<target>/doxygen/html,
+# which holds its html/ and xml/ output. SRC, TST, DOCS, TOOLS, TEMPLATES and
+# README default to src, utst, docs, tools, templates and README.md under the
+# current source directory when those exist, INC to inc; EXTRA_DIRS adds
+# directories, HEADERS_ONLY leaves out the sources and NO_TST the tests. The
+# Doxyfile comes from the layer's template, Doxyfile.common.in beside this
+# module, or from the project's docs/Doxyfile.common.in when that exists. A
 # no-op unless PROJECT_BUILD_DOCS is ON; a warning and no docs target when
 # Doxygen is not found.
 #
@@ -66,8 +69,8 @@ function (seeker_add_doxygen _target)
 
   if (DOX_NO_TST)
     set(DOX_TST "")
-  elseif (NOT DOX_TST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tst")
-    set(DOX_TST "${CMAKE_CURRENT_SOURCE_DIR}/tst")
+  elseif (NOT DOX_TST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/utst")
+    set(DOX_TST "${CMAKE_CURRENT_SOURCE_DIR}/utst")
   endif ()
 
   if (NOT DOX_DOCS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/docs")
@@ -105,7 +108,12 @@ function (seeker_add_doxygen _target)
   set(EXTRA_DIRS "${DOX_EXTRA_DIRS}")
   set(README_FILE "${DOX_README}")
 
-  configure_file("${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in" "${DOCS_BASE}/Doxyfile" @ONLY)
+  # Doxyfile template: the layer's, or the project's override
+  set(_template "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Doxyfile.common.in")
+  if (EXISTS "${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in")
+    set(_template "${PROJECT_SOURCE_DIR}/docs/Doxyfile.common.in")
+  endif ()
+  configure_file("${_template}" "${DOCS_BASE}/Doxyfile" @ONLY)
 
   set(_docs_stamp "${DOCS_BASE}/.doxygen.stamp")
   set(_deps "${DOCS_BASE}/Doxyfile")
@@ -309,8 +317,8 @@ endif ()
 # After each build of <target>, run clang-tidy on the given CUDA sources through
 # Clang's CUDA frontend; ALLOW_FAILURE keeps findings from failing the build. A
 # no-op for an INTERFACE target, without the CUDA toolkit, with
-# ENABLE_CLANG_TIDY OFF, or when clang-tidy is not found. A target a factory
-# skipped on this platform is ignored; any other name that is not a target
+# ENABLE_CLANG_TIDY OFF, or when clang-tidy is not found. A target a helper
+# skipped (_seeker_skip) is ignored; any other name that is not a target
 # fails the configure.
 #
 # Arguments:

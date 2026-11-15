@@ -7,5 +7,9 @@ compile_commands.json
 /docs/standards/
 .venv
 
+# python bytecode caches
+__pycache__/
+*.pyc
+
 # dev ignores
 /.vscode/

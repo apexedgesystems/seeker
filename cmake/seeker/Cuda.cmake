@@ -158,15 +158,65 @@ function (_seeker_cuda_target_scope _target _out_scope)
   endif ()
 endfunction ()
 
+# Helper: link NVML_LIBRARY to a target with <scope>, add NVML_INCLUDE_DIR and
+# define COMPAT_NVML_AVAILABLE=1. The library is linked by its path, and where
+# UNIX is set and APPLE is not, a target that is not INTERFACE gets its
+# directory in BUILD_RPATH and INSTALL_RPATH; there, a stub (a library whose
+# real path is in a stubs directory, for linking only) is linked by file name
+# instead, -l:<file>, with its directory given to the linker as a -L option,
+# which CMake puts in no RPATH
+function (_seeker_nvml_link _target _scope)
+  target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=1)
+  target_include_directories(${_target} ${_scope} "${NVML_INCLUDE_DIR}")
+  if (NOT UNIX OR APPLE)
+    target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
+    return()
+  endif ()
+
+  get_filename_component(_nvml_dir "${NVML_LIBRARY}" DIRECTORY)
+  get_filename_component(_nvml_real "${NVML_LIBRARY}" REALPATH)
+  get_filename_component(_nvml_real_dir "${_nvml_real}" DIRECTORY)
+  get_filename_component(_nvml_real_dir_name "${_nvml_real_dir}" NAME)
+  if (_nvml_real_dir_name STREQUAL "stubs")
+    get_filename_component(_nvml_file "${NVML_LIBRARY}" NAME)
+    target_link_options(${_target} ${_scope} "-L${_nvml_dir}")
+    target_link_libraries(${_target} ${_scope} "-l:${_nvml_file}")
+    return()
+  endif ()
+
+  target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
+  get_target_property(_tgt_type "${_target}" TYPE)
+  if (NOT _tgt_type STREQUAL "INTERFACE_LIBRARY")
+    set_property(
+      TARGET ${_target}
+      APPEND
+      PROPERTY BUILD_RPATH "${_nvml_dir}"
+    )
+    set_property(
+      TARGET ${_target}
+      APPEND
+      PROPERTY INSTALL_RPATH "${_nvml_dir}"
+    )
+  endif ()
+endfunction ()
+
 # ------------------------------------------------------------------------------
 # seeker_nvml_enable(<target>)
 #
 # Enable NVML usage when libnvidia-ml and nvml.h are available: links the
-# library, adds its include directory and RPATH, and defines
-# COMPAT_NVML_AVAILABLE=1; defines COMPAT_NVML_AVAILABLE=0 when NVML is missing
-# and on bare-metal builds. PUBLIC (INTERFACE for an INTERFACE target). A target
-# a factory skipped on this platform is ignored; any other name that is not a
-# target fails the configure.
+# library, adds its include directory and defines COMPAT_NVML_AVAILABLE=1;
+# defines COMPAT_NVML_AVAILABLE=0 when NVML is missing and on bare-metal
+# builds. PUBLIC (INTERFACE for an INTERFACE target). The search runs once and
+# is cached, and every call links the library the same way. A library whose
+# real path is in a stubs directory is a stub, for linking only, and the
+# driver's library is found at run time: where UNIX is set and APPLE is not,
+# it is linked by file name (-l:<file>) with its directory given to the linker
+# as -L, so neither the build-tree nor the installed RPATH of a binary that
+# links it, directly or through the target, names that directory. Any other
+# library is linked by its path, and its directory is added to the BUILD_RPATH
+# and INSTALL_RPATH of a target that is not INTERFACE. A target a helper
+# skipped (_seeker_skip) is ignored; any other name that is not a target fails
+# the configure.
 #
 # Search priority:
 #   1. NVML_ROOT / NVIDIA_ML_ROOT environment variables
@@ -192,9 +242,7 @@ function (seeker_nvml_enable _target)
   # Use cached result if already searched
   if (DEFINED NVML_LIBRARY AND DEFINED NVML_INCLUDE_DIR)
     if (NVML_INCLUDE_DIR AND NVML_LIBRARY)
-      target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=1)
-      target_include_directories(${_target} ${_scope} "${NVML_INCLUDE_DIR}")
-      target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
+      _seeker_nvml_link(${_target} ${_scope})
     else ()
       target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=0)
     endif ()
@@ -240,27 +288,7 @@ function (seeker_nvml_enable _target)
     else ()
       message(STATUS "NVML found: ${NVML_LIBRARY}")
     endif ()
-    target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=1)
-    target_include_directories(${_target} ${_scope} "${NVML_INCLUDE_DIR}")
-    target_link_libraries(${_target} ${_scope} "${NVML_LIBRARY}")
-
-    # RPATH handling only for non-INTERFACE targets
-    get_target_property(_tgt_type "${_target}" TYPE)
-    if (NOT _tgt_type STREQUAL "INTERFACE_LIBRARY")
-      get_filename_component(_nvml_dir "${NVML_LIBRARY}" DIRECTORY)
-      if (UNIX AND NOT APPLE)
-        set_property(
-          TARGET ${_target}
-          APPEND
-          PROPERTY BUILD_RPATH "${_nvml_dir}"
-        )
-        set_property(
-          TARGET ${_target}
-          APPEND
-          PROPERTY INSTALL_RPATH "${_nvml_dir}"
-        )
-      endif ()
-    endif ()
+    _seeker_nvml_link(${_target} ${_scope})
   else ()
     message(STATUS "NVML not found - building without NVML (set NVML_ROOT if installed)")
     target_compile_definitions(${_target} ${_scope} COMPAT_NVML_AVAILABLE=0)

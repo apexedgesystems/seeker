@@ -1,11 +1,12 @@
 # ==============================================================================
-# seeker/All.cmake - Single entry point for Seeker CMake infrastructure
+# seeker/All.cmake - Entry point for the Seeker CMake helpers
 # ==============================================================================
 #
 # Usage:
 #   include(seeker/All)
 #
-# Provides all seeker_* functions. Include this once per CMakeLists.txt.
+# Provides the seeker_* functions of the modules it includes. Include this
+# once per CMakeLists.txt.
 # ==============================================================================
 
 include_guard(GLOBAL)

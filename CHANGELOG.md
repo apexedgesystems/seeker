@@ -6,6 +6,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 [#8]: https://github.com/apexedgesystems/seeker/pull/8
 [#9]: https://github.com/apexedgesystems/seeker/pull/9
+[#10]: https://github.com/apexedgesystems/seeker/pull/10
 
 ---
 
@@ -88,6 +89,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   honours the request (not on tmpfs)
 - Project CMake helpers validate their arguments and own every target's
   mechanics; leaf CMake files are declarative ([#9])
+- The CMake helper layer follows the shared build-targets contract: a target
+  names the optional targets it needs and is skipped, listed once in the
+  configure summary, when one is absent; coverage leaves fetched dependencies
+  out; an NVML stub's directory reaches no run-time path ([#10]). Migration:
+  `REQUIRES PTHREADS` is retired, link `Threads::Threads` through `DEPS_*` or
+  `LINK`; `TST_DIR` and the `tst/` tier are retired, keep module tests in
+  `utst/`, `ptst/` or `dtst/`, which `seeker_add_test_subdirs()` adds.
 
 ### Fixed
 
