@@ -107,6 +107,12 @@ gives this project's module names. List every source, and put public
 dependencies in `DEPS_PUBLIC` and private ones in `DEPS_PRIVATE`. A header-only
 library uses `seeker_add_interface_library` instead.
 
+An installed library exports its `DEPS_PUBLIC` as link requirements of its
+target, so the package config template must call `find_dependency(...)` for
+every exported public dependency; a consumer's `find_package` then resolves
+them. [Section 9](#9-this-project) names this project's template and what it
+finds.
+
 `seeker_add_doxygen` writes each Doxyfile from `Doxyfile.common.in` in this
 directory, part of the layer; a project's `docs/Doxyfile.common.in` replaces
 it.
@@ -874,6 +880,13 @@ line to its domain section of `tools/cpp/CMakeLists.txt`:
 `seeker_add_tool` for them. A tool outside that pattern is its own
 `seeker_add_tool` call. The file ends with `seeker_finalize_cpp_tools()`, and
 `src/CMakeLists.txt` and `tools/CMakeLists.txt` are the composition files.
+
+### Package
+
+The package config template is `cmake/seekerConfig.cmake.in`. It calls
+`find_dependency(fmt)`, the one public dependency the modules export
+(`seeker_helpers` is exported with them), and looks for the CUDA toolkit
+quietly for the `gpu_cuda` sidecar.
 
 ### Platforms and toolchains
 
