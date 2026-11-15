@@ -15,9 +15,12 @@ anywhere but parse.additional_commands, or a form the script does not edit
 additional_commands given twice, additional_commands outside parse), stops it
 with nothing written, as do a configuration that cannot be read, that is not
 valid YAML or that cmake-format's loader cannot construct (an unknown tag),
-a cmake-genparsers that is missing or fails, and generator output that is not
+a cmake-genparsers that is missing or fails, generator output that is not
 YAML or does not describe exactly the public helpers the helper directory
-defines (the leaf check's own list), each with a one-line message. The
+defines (the leaf check's own list), and a candidate cmake-format itself
+cannot load (its configuration constructed in-process from the candidate, the
+consumer's own check of every signature's value), each with a one-line
+message. The
 leaf check fails when the signatures drift from the helpers; run this after
 changing a helper's arguments.
 """
@@ -29,6 +32,7 @@ from typing import Any, List, NoReturn, Optional, Tuple
 
 import check_leaf_cmake as leaf
 import yaml  # type: ignore[import-untyped]  # cmakelang's yaml extra (PyYAML); no type stubs
+from cmakelang import configuration  # type: ignore[import-untyped]  # the formatter's own loader
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".cmake-format.yaml"
@@ -131,6 +135,8 @@ def main() -> None:
     helpers = sorted(name for _, name, _ in leaf.helper_blocks(ROOT) if not name.startswith("_"))
     if not isinstance(block, dict):
         fail("cmake-genparsers output is not a mapping of helper signatures")
+    if not all(isinstance(name, str) for name in block):
+        fail("cmake-genparsers output has a key that is not a helper name")
     if sorted(block) != helpers:
         missing = " ".join(name for name in helpers if name not in block)
         unexpected = " ".join(name for name in block if name not in helpers)
@@ -195,6 +201,16 @@ def main() -> None:
         fail("the candidate is not valid YAML (%s)" % str(error).splitlines()[0])
     if candidate != expected:
         fail("the candidate would change something outside %s.%s" % (SECTION, KEY))
+    # The consumer decides what a valid signature is: construct the formatter's
+    # configuration from the candidate exactly as cmake-format does when it
+    # loads the file; whatever that raises is a rejection of the candidate
+    try:
+        configuration.Configuration(**candidate)
+    except Exception as error:  # the constructor's own exception types are not a contract
+        fail(
+            "cmake-format rejects the candidate configuration (%s: %s)"
+            % (type(error).__name__, str(error).splitlines()[0] if str(error) else "")
+        )
 
     if new_text != text:
         CONFIG.write_text(new_text)
