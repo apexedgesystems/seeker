@@ -194,7 +194,7 @@ endfunction ()
 # ------------------------------------------------------------------------------
 function (_seeker_print_skipped_targets)
   get_property(_skipped GLOBAL PROPERTY SEEKER_SKIPPED_TARGETS)
-  if (NOT _skipped)
+  if ("${_skipped}" STREQUAL "")
     return()
   endif ()
   list(REMOVE_DUPLICATES _skipped)

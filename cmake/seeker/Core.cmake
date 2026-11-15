@@ -94,8 +94,10 @@ function (_seeker_requires_targets _out_var _target)
     endif ()
   endforeach ()
 
+  # A list that decides a skip or a link is tested for emptiness, never for
+  # truth: a truth test reads a sole value such as OFF as an empty list
   set(_present TRUE)
-  if (_missing)
+  if (NOT "${_missing}" STREQUAL "")
     list(JOIN _missing ", " _missing_str)
     _seeker_skip(${_target} "missing targets: ${_missing_str}${_hints}")
     set(_present FALSE)

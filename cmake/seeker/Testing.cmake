@@ -138,7 +138,7 @@ function (seeker_add_gtest)
     endif ()
 
     # Build-only usage requirement: never part of an exported interface
-    if (_coverage_libs)
+    if (NOT "${_coverage_libs}" STREQUAL "")
       target_link_libraries(${GT_TARGET} PRIVATE $<BUILD_INTERFACE:seeker::coverage_flags>)
       foreach (_lib IN LISTS _coverage_libs)
         target_link_libraries(${_lib} PRIVATE $<BUILD_INTERFACE:seeker::coverage_flags>)
@@ -240,7 +240,7 @@ function (seeker_add_gtest)
   endif ()
 
   # Coverage test (when any coverage libraries detected)
-  if (_coverage_libs)
+  if (NOT "${_coverage_libs}" STREQUAL "")
     set(_cov_labels "Coverage")
     if (GT_LABELS)
       list(APPEND _cov_labels ${GT_LABELS})
