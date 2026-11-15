@@ -115,8 +115,9 @@ def end_line(lines: List[str], node: Any) -> int:
 
 
 def call_of(name: str, spec: Any) -> str:
-    """One call of the helper shaped by its generated signature: a positional
-    word per declared positional, each keyword with a value, each flag."""
+    """A representative call of the helper for the formatter to exercise its
+    signature: one positional word (the declared count when it is a number),
+    each top-level keyword with a value, each top-level flag."""
     pargs = spec.get("pargs", 0) if isinstance(spec, dict) else 0
     words = ["x"] * (pargs if isinstance(pargs, int) and pargs > 0 else 1)
     kwargs = spec.get("kwargs", {}) if isinstance(spec, dict) else {}
