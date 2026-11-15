@@ -337,6 +337,8 @@ def main() -> None:
         updated = splice(text, rendered)
     except BlockError as error:
         sys.exit("gen_helper_reference: %s; nothing written" % error)
+    except (OSError, UnicodeDecodeError) as error:
+        sys.exit("gen_helper_reference: cannot read the guide (%s); nothing written" % error)
     if updated != text:
         path.write_text(updated)
     print("helper reference: %d lines in %s" % (rendered.count("\n"), path.relative_to(root)))

@@ -13,9 +13,11 @@ original, section for section, before the file is written; a difference
 anywhere but parse.additional_commands, or a form the script does not edit
 (no block mapping at the root, a flow-style parse section, parse or
 additional_commands given twice, additional_commands outside parse), stops it
-with nothing written, as do a configuration that is not valid YAML or that
-cmake-format's loader cannot construct (an unknown tag), and a cmake-genparsers
-that is missing or fails, each with a one-line message. The
+with nothing written, as do a configuration that cannot be read, that is not
+valid YAML or that cmake-format's loader cannot construct (an unknown tag),
+a cmake-genparsers that is missing or fails, and generator output that is not
+YAML or does not describe exactly the public helpers the helper directory
+defines (the leaf check's own list), each with a one-line message. The
 leaf check fails when the signatures drift from the helpers; run this after
 changing a helper's arguments.
 """
@@ -112,12 +114,36 @@ def trim_back(lines: List[str], start: int, end: int) -> int:
 
 
 def main() -> None:
-    text = CONFIG.read_text() if CONFIG.exists() else ""
+    try:
+        text = CONFIG.read_text() if CONFIG.exists() else ""
+    except (OSError, UnicodeDecodeError) as error:
+        fail("cannot read %s (%s)" % (CONFIG.name, error))
     lines = text.splitlines(keepends=True)
     if lines and not lines[-1].endswith("\n"):
         lines[-1] += "\n"
     generated, count = generated_lines()
-    block = yaml.safe_load("\n".join(generated) + "\n")
+    try:
+        block = yaml.safe_load("\n".join(generated) + "\n")
+    except yaml.YAMLError as error:
+        fail("cmake-genparsers output is not valid YAML (%s)" % str(error).splitlines()[0])
+    # The output must describe exactly the public helpers the layer defines (the
+    # check's own list); anything else would be written over the signatures
+    helpers = sorted(name for _, name, _ in leaf.helper_blocks(ROOT) if not name.startswith("_"))
+    if not isinstance(block, dict):
+        fail("cmake-genparsers output is not a mapping of helper signatures")
+    if sorted(block) != helpers:
+        missing = " ".join(name for name in helpers if name not in block)
+        unexpected = " ".join(name for name in block if name not in helpers)
+        fail(
+            "cmake-genparsers described %d helpers where %s defines %d%s%s"
+            % (
+                len(block),
+                leaf.HELPER_DIR,
+                len(helpers),
+                ("; missing: " + missing) if missing else "",
+                ("; unexpected: " + unexpected) if unexpected else "",
+            )
+        )
 
     try:
         root = yaml.compose(text) if text.strip() else None
