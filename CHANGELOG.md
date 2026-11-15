@@ -90,11 +90,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Project CMake helpers validate their arguments and own every target's
   mechanics; leaf CMake files are declarative ([#9])
 - The CMake helper layer follows the shared build-targets contract: a target
-  names the optional targets it needs and is skipped, and listed once in the
+  names the optional targets it needs and is skipped, listed once in the
   configure summary, when one is absent; coverage leaves fetched dependencies
-  out; the ccache launcher follows its option; every library linking NVML
-  carries the NVML RPATH, and an NVML stub's directory reaches no run-time
-  path ([#10])
+  out; an NVML stub's directory reaches no run-time path ([#10]). Migration:
+  `REQUIRES PTHREADS` is retired, link `Threads::Threads` through `DEPS_*` or
+  `LINK`; `TST_DIR` and the `tst/` tier are retired, keep module tests in
+  `utst/`, `ptst/` or `dtst/`, which `seeker_add_test_subdirs()` adds.
 
 ### Fixed
 
