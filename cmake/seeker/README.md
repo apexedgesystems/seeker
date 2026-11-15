@@ -767,6 +767,13 @@ It needs Python 3 and cmakelang with its YAML extra (PyYAML), as
 cmake-format and `cmake-genparsers`, and cmake-format and
 `tools/cmake/gen_signatures.py` read YAML through PyYAML.
 
+The signature generator trusts `cmake-genparsers` once cmake-format, in the
+same process, loads the candidate configuration and formats one call of every
+helper with it; anything else stops it with one line and nothing written. A
+signature the formatter loads and uses but that is wrong for its helper cannot
+be told from a changed helper there: the format gate, cmake-format and
+cmake-lint over every leaf with the written configuration, is that check.
+
 ---
 
 ## 8. Extending a Helper

@@ -18,9 +18,11 @@ valid YAML or that cmake-format's loader cannot construct (an unknown tag),
 a cmake-genparsers that is missing or fails, generator output that is not
 YAML or does not describe exactly the public helpers the helper directory
 defines (the leaf check's own list), and a candidate cmake-format itself
-cannot load (its configuration constructed in-process from the candidate, the
-consumer's own check of every signature's value), each with a one-line
-message. The
+cannot load or cannot use (its configuration constructed in-process from the
+candidate, then one call of every helper formatted with it), each with a
+one-line message. Past that the values are trusted: a signature the
+formatter loads and uses but that is wrong for its helper cannot be told from
+a changed helper here, and the format gate over every leaf is that check. The
 leaf check fails when the signatures drift from the helpers; run this after
 changing a helper's arguments.
 """
@@ -33,6 +35,7 @@ from typing import Any, List, NoReturn, Optional, Tuple
 import check_leaf_cmake as leaf
 import yaml  # type: ignore[import-untyped]  # cmakelang's yaml extra (PyYAML); no type stubs
 from cmakelang import configuration  # type: ignore[import-untyped]  # the formatter's own loader
+from cmakelang.format import __main__ as formatter  # type: ignore[import-untyped]  # and its use
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / ".cmake-format.yaml"
@@ -109,6 +112,20 @@ def end_line(lines: List[str], node: Any) -> int:
     if mark.line >= len(lines) or not lines[mark.line][: mark.column].strip():
         return mark.line
     return mark.line + 1
+
+
+def call_of(name: str, spec: Any) -> str:
+    """One call of the helper shaped by its generated signature: a positional
+    word per declared positional, each keyword with a value, each flag."""
+    pargs = spec.get("pargs", 0) if isinstance(spec, dict) else 0
+    words = ["x"] * (pargs if isinstance(pargs, int) and pargs > 0 else 1)
+    kwargs = spec.get("kwargs", {}) if isinstance(spec, dict) else {}
+    if isinstance(kwargs, dict):
+        words += ["%s v" % key for key in kwargs]
+    flags = spec.get("flags", []) if isinstance(spec, dict) else []
+    if isinstance(flags, list):
+        words += [str(flag) for flag in flags]
+    return "%s(%s)\n" % (name, " ".join(words))
 
 
 def trim_back(lines: List[str], start: int, end: int) -> int:
@@ -203,14 +220,25 @@ def main() -> None:
         fail("the candidate would change something outside %s.%s" % (SECTION, KEY))
     # The consumer decides what a valid signature is: construct the formatter's
     # configuration from the candidate exactly as cmake-format does when it
-    # loads the file; whatever that raises is a rejection of the candidate
+    # loads the file, then format one call of every helper with it, in-process;
+    # whatever either raises is a rejection of the candidate. A signature the
+    # formatter loads and uses but that is wrong for its helper cannot be told
+    # from a changed helper here; the format gate over every leaf is that check.
     try:
-        configuration.Configuration(**candidate)
+        config = configuration.Configuration(**candidate)
     except Exception as error:  # the constructor's own exception types are not a contract
         fail(
             "cmake-format rejects the candidate configuration (%s: %s)"
             % (type(error).__name__, str(error).splitlines()[0] if str(error) else "")
         )
+    for name in helpers:
+        try:
+            formatter.process_file(config, call_of(name, block[name]))
+        except Exception as error:  # the formatter's own exception types are not a contract
+            fail(
+                "cmake-format cannot format a call of %s with the candidate signatures (%s: %s)"
+                % (name, type(error).__name__, str(error).splitlines()[0] if str(error) else "")
+            )
 
     if new_text != text:
         CONFIG.write_text(new_text)
