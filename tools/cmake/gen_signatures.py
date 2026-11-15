@@ -13,8 +13,10 @@ original, section for section, before the file is written; a difference
 anywhere but parse.additional_commands, or a form the script does not edit
 (no block mapping at the root, a flow-style parse section, parse or
 additional_commands given twice, additional_commands outside parse), stops it
-with nothing written. The leaf check fails when the signatures drift from the
-helpers; run this after changing a helper's arguments.
+with nothing written, as do a configuration that is not valid YAML and a
+cmake-genparsers that is missing or fails, each with a one-line message. The
+leaf check fails when the signatures drift from the helpers; run this after
+changing a helper's arguments.
 """
 import re
 import subprocess
@@ -40,12 +42,21 @@ def generated_lines() -> Tuple[List[str], int]:
     """The additional_commands block at column 0, one helper per top-level
     key, in the shape the format gate's YAML formatter settles on (double
     quotes, list items two spaces under their key)."""
-    gen = subprocess.run(
-        ["cmake-genparsers", "-f", "yaml"] + [str(p) for p in HELPERS],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+    try:
+        gen = subprocess.run(
+            ["cmake-genparsers", "-f", "yaml"] + [str(p) for p in HELPERS],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except FileNotFoundError:
+        fail("cmake-genparsers is not on PATH (install cmakelang with its YAML extra)")
+    except subprocess.CalledProcessError as error:
+        detail = (error.stderr or "").strip().splitlines()
+        fail(
+            "cmake-genparsers exited %d%s"
+            % (error.returncode, (": " + detail[-1]) if detail else "")
+        )
     lines = gen.splitlines()
     if "" in lines:  # the processed file names follow a blank line
         lines = lines[: lines.index("")]
@@ -107,7 +118,10 @@ def main() -> None:
     generated, count = generated_lines()
     block = yaml.safe_load("\n".join(generated) + "\n")
 
-    root = yaml.compose(text) if text.strip() else None
+    try:
+        root = yaml.compose(text) if text.strip() else None
+    except yaml.YAMLError as error:
+        fail("%s is not valid YAML (%s)" % (CONFIG.name, str(error).splitlines()[0]))
     top = entries(root, "the configuration")
     if lookup(top, KEY, "the root"):
         fail("%s must sit under %s:" % (KEY, SECTION))
